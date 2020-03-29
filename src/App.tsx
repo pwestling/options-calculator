@@ -13,6 +13,7 @@ import bs from "black-scholes";
 import moment from "moment";
 import TextField from "@material-ui/core/TextField";
 import Fab from "@material-ui/core/Fab";
+import Button from "@material-ui/core/Button";
 import AddIcon from "@material-ui/icons/Add";
 import Select from "@material-ui/core/Select";
 import InputLabel from "@material-ui/core/InputLabel";
@@ -30,6 +31,7 @@ import FormControl from "@material-ui/core/FormControl";
 import base64url from "base64url";
 import { useStyles } from "./Styles";
 import ByteBuffer from "byte-buffer";
+import axios from "axios";
 
 import { v4 as uuidv4 } from "uuid";
 import produce from "immer";
@@ -55,7 +57,6 @@ import {
 import { OptionCard, FixedOptionCard } from "./OptionCards";
 import { effectivePrice } from "./Helpers";
 
-// Initialize Cloud Firestore through Firebase
 const INTEREST_RATE = 0.0;
 
 function SymbolCard(props: {
@@ -64,14 +65,19 @@ function SymbolCard(props: {
   iv: number;
   symbol: string;
   price: number;
+  state: State;
 }): React.ReactElement {
+  
+  let [permalink, setPermalink] = useState("")
+  let [pricePlaceholder, setPricePlaceholder] = useState("")
+  
   return (
     <Card className={props.className} raised>
       <CardContent>
         <Grid
           container
           justify="flex-start"
-          alignItems="flex-end"
+          alignItems="flex-start"
           direction="row"
           spacing={3}
         >
@@ -126,6 +132,27 @@ function SymbolCard(props: {
               }
             />
           </Grid>
+          <Grid item xs={12} sm={6}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                storeState(props.state).then(result => {
+                  setPermalink(`${window.location.protocol}/${window.location.host}/${result}`)
+                  window.history.pushState("", "", `/${result}`);
+                });
+              }}
+            >
+              Create Link
+            </Button>
+          </Grid>
+          {permalink.length > 0 ?  <Grid item container alignContent="stretch" xs={12}>
+            <TextField
+              fullWidth
+              value={permalink}
+              label="Permalink"
+              variant="outlined"
+              contentEditable={false} />
+          </Grid> : <></>}
         </Grid>
       </CardContent>
     </Card>
@@ -187,217 +214,57 @@ function adjustBSPrice(state: State, option: Option) {
     ) / 100;
 }
 
-// const OptionBlob = new ObjectType({
-//   id: types.UInt8,
-//   strike: types.UInt32,
-//   price: types.UInt32,
-//   blackScholesPrice: types.UInt32,
-//   quantity: types.UInt32,
-//   expiry: types.UInt64,
-//   type: types.String,
-//   sale: types.String,
-//   editing: types.Boolean
-// });
+const boxUrl = "https://jsonbox.io/box_5fa832a14b0bc099f9e0";
 
-// const DisplayOptionBlob = new ObjectType({
-//   profit: types.String,
-//   maxPrice: types.UInt32,
-//   minPrice: types.UInt32
-// });
-
-// const StateBlob = new ObjectType({
-//   options: new ArrayType(OptionBlob),
-//   symbol: types.String,
-//   price: types.UInt32,
-//   iv: types.UInt16,
-//   display: DisplayOptionBlob,
-//   nextOptId: types.UInt8
-// });
-
-function writeString(buffer: ByteBuffer, data: string) {
-  let start = buffer.index;
-  buffer.writeByte(0);
-  if (data.length > 0) {
-    let written = buffer.writeString(data);
-    let end = buffer.index;
-    buffer.index = start;
-    buffer.writeByte(written);
-    console.log();
-    buffer.index = end;
-    console.log("bounds", start, end);
-    console.log(buffer.slice(start, end));
-  }
+function storeState(state: State): Promise<String> {
+  return axios.post(boxUrl, state).then(
+    res => res.data._id,
+    err => {
+      console.log("Error creating permalink", err);
+      return "";
+    }
+  );
 }
 
-function readString(buffer: ByteBuffer): string {
-  let length = buffer.readByte();
-  if (length > 0) {
-    return buffer.readString(length);
-  } else {
-    return "";
-  }
-}
-
-function writeDecimal(buffer :ByteBuffer, data : number ){
-  let rounded = Math.round(data*10000) / 10000
-  writeString(buffer, rounded.toString())
-}
-
-function readDecimal(buffer :ByteBuffer ) : number{
-  return Number(readString(buffer))
-}
-
-function stateSer(buffer: ByteBuffer, state: State) {
-  buffer.writeByte(state.options.length);
-  state.options.forEach(o => optSer(buffer, o));
-  writeString(buffer, state.symbol);
-  writeDecimal(buffer, state.price);
-  writeDecimal(buffer, state.iv);
-  dispOptSer(buffer, state.display);
-  buffer.writeByte(state.nextOptId);
-}
-
-function dispOptSer(buffer: ByteBuffer, state: DisplayOptions) {
-  if (state.profit === ProfitDisplay.Absolute) {
-    buffer.writeByte(1);
-  } else {
-    buffer.writeByte(2);
-  }
-  buffer.writeInt(state.minPrice || -1).writeInt(state.maxPrice || -1);
-}
-
-function optSer(buffer: ByteBuffer, option: Option) {
-  console.log("Serializing", option)
-  buffer.writeByte(option.id)
-  writeDecimal(buffer, option.strike);
-
-  writeDecimal(buffer, option.price);
-  writeDecimal(buffer, (option.blackScholesPrice || -1));
-
-  writeDecimal(buffer,option.quantity)
-  writeDecimal(buffer, option.expiry);
-
-  if (option.type === OptionType.Put) {
-    buffer.writeByte(1);
-  } else {
-    buffer.writeByte(2);
-  }
-
-  if (option.sale === OptionSale.Buy) {
-    buffer.writeByte(1);
-  } else {
-    buffer.writeByte(2);
-  }
-}
-
-function stateDeSer(buffer: ByteBuffer): State {
-  let result = {} as State;
-
-  let numOptions = buffer.readByte();
-  console.log("Num options", numOptions);
-  result.options = [];
-  for (let i = 0; i < numOptions; i++) {
-    result.options.push(optDeSer(buffer));
-  }
-  console.log(result)
-  result.symbol = readString(buffer);
-  result.price = readDecimal(buffer);
-  result.iv = readDecimal(buffer)
-  console.log(result)
-  result.display = dispOptDeSer(buffer);
-  result.nextOptId = buffer.readByte();
-  return result;
-}
-
-function dispOptDeSer(buffer: ByteBuffer): DisplayOptions {
-  let result = {} as DisplayOptions;
-  let profit = buffer.readByte();
-
-  if (profit === 1) {
-    result.profit = ProfitDisplay.Absolute;
-  } else {
-    result.profit = ProfitDisplay.PercentRisk;
-  }
-  result.minPrice = buffer.readInt();
-  if (result.minPrice < 0) {
-    delete result.minPrice;
-  }
-  result.maxPrice = buffer.readInt();
-  if (result.maxPrice < 0) {
-    delete result.maxPrice;
-  }
-  return result;
-}
-
-function optDeSer(buffer: ByteBuffer): Option {
-  let result = {} as Option;
-  result.id = buffer.readByte();
-  console.log("Result", result);
-
-  result.strike = readDecimal(buffer);
-  console.log("Result", result);
-
-  result.price = readDecimal(buffer);
-  console.log("Result", result);
-
-  result.blackScholesPrice = readDecimal(buffer);
-  console.log("Result", result);
-
-  result.quantity = readDecimal(buffer)
-  console.log("Result", result);
-
-  result.expiry = readDecimal(buffer)
-  console.log("Result", result);
-
-  let type = buffer.readByte();
-  if (type === 1) {
-    result.type = OptionType.Put;
-  } else {
-    result.type = OptionType.Call;
-  }
-
-  let sale = buffer.readByte();
-  if (sale === 1) {
-    result.sale = OptionSale.Buy;
-  } else {
-    result.sale = OptionSale.Sell;
-  }
-  return result;
-}
-
-function serializeState(state: State): string {
-  let buf = new ByteBuffer();
-  buf.implicitGrowth = true;
-  stateSer(buf, state);
-  return base64url.encode(new Buffer(buf.toArray()));
-}
-
-function deserializeState(state: string): State {
-  let buf = new ByteBuffer(new Buffer(base64url.decode(state)));
-  return stateDeSer(buf);
+function retrieveState(id: string): Promise<State | null> {
+  return axios.get(boxUrl + "/" + id).then(
+    res => res.data as State,
+    err => {
+      console.log("Error retrieving state", err);
+      return null;
+    }
+  );
 }
 
 function App(): React.ReactElement {
   const classes = useStyles();
 
   var urlParams = new URLSearchParams(window.location.search);
+  let path = window.location.pathname.match(/\/([0-9a-z]+)/)
 
-  const initialArg: State = useMemo(() => {
-    if (urlParams.has("state")) {
+  useEffect(() => {
+    if (path) {
       try {
-        let state = deserializeState(urlParams.get("state") as string);
-        return state;
+        retrieveState(path[1]).then(result => {
+          if (result !== null) {
+            dispatch({ type: "set-state", payload: result });
+          }
+        });
       } catch (e) {
         console.log("State is invalid", e);
       }
     }
+  }, []);
+
+  const initialArg: State = useMemo(() => {
     return {
       options: [] as Option[],
       price: -1,
       iv: -1,
       symbol: "SPY",
       display: { profit: ProfitDisplay.PercentRisk },
-      nextOptId: 0
+      nextOptId: 0,
+      loaded: !path
     };
   }, []);
 
@@ -464,13 +331,6 @@ function App(): React.ReactElement {
           }
         }
       });
-      try {
-        let encoded = serializeState(newstate);
-        window.history.pushState("", "", `/?state=${encoded}`);
-      } catch (e) {
-        console.log("State cannot be serialized");
-      }
-
       return newstate;
     },
     initialArg
@@ -482,7 +342,6 @@ function App(): React.ReactElement {
       .map(o => o.expiry)
       .reduce((a, b) => Math.max(a, b), 0)
   );
-  console.log(lastExpiry.format("MM/DD/YYYY"));
 
   let maxStrike =
     state.display.maxPrice ||
@@ -520,7 +379,6 @@ function App(): React.ReactElement {
             .asDays() / 360.0;
         let modifier = option.sale === OptionSale.Buy ? 1 : -1;
         let optionProjectedPrice = 0;
-        console.log("IV", state.iv);
         if (yearsToExpiry > 0) {
           optionProjectedPrice = bs.blackScholes(
             predictedPrice,
@@ -558,243 +416,247 @@ function App(): React.ReactElement {
     .map(o => effectivePrice(o) * 100 * (o.sale === OptionSale.Buy ? -1 : 1))
     .reduce((a, b) => a + b, 0);
 
-  return (
-    <div className={classes.pageContainer}>
-      <Grid container direction="row" justify="space-between">
-        <Grid item xs={12} md={3}>
-          <Grid
-            container
-            direction="column"
-            justify="center"
-            alignItems="stretch"
-            spacing={0}
-          >
-            <GridColumn>
-              <SymbolCard
-                iv={state.iv}
-                className={classes.marginBot4}
-                symbol={state.symbol}
-                price={state.price}
-                dispatch={dispatch}
-              />
-              {state.options.map(option => {
-                if (option.editing) {
-                  return (
-                    <OptionCard
-                      id={option.id}
-                      iv={state.iv}
-                      currentPrice={state.price}
-                      dispatch={dispatch}
-                      option={option}
-                      symbol={state.symbol}
-                    />
-                  );
-                } else {
-                  return (
-                    <FixedOptionCard
-                      id={option.id}
-                      dispatch={dispatch}
-                      option={option}
-                      symbol={state.symbol}
-                    />
-                  );
-                }
-              })}
-              <Tooltip title="Add Option">
-                <Fab color="primary" onClick={e => dispatch({ type: "add" })}>
-                  <AddIcon />
-                </Fab>
-              </Tooltip>
-            </GridColumn>
-          </Grid>
-        </Grid>
-
-        <Grid item sm={12} md={8}>
-          <Grid
-            direction="column"
-            container
-            justify="center"
-            alignItems="center"
-            spacing={1}
-          >
+  if (state.loaded) {
+    return (
+      <div className={classes.pageContainer}>
+        <Grid container direction="row" justify="space-between">
+          <Grid item xs={12} md={3}>
             <Grid
-              direction="row"
-              item
+              container
+              direction="column"
+              justify="center"
+              alignItems="stretch"
+              spacing={0}
+            >
+              <GridColumn>
+                <SymbolCard
+                  iv={state.iv}
+                  className={classes.marginBot4}
+                  symbol={state.symbol}
+                  price={state.price}
+                  dispatch={dispatch}
+                  state={state}
+                />
+                {state.options.map(option => {
+                  if (option.editing) {
+                    return (
+                      <OptionCard
+                        id={option.id}
+                        iv={state.iv}
+                        currentPrice={state.price}
+                        dispatch={dispatch}
+                        option={option}
+                        symbol={state.symbol}
+                      />
+                    );
+                  } else {
+                    return (
+                      <FixedOptionCard
+                        id={option.id}
+                        dispatch={dispatch}
+                        option={option}
+                        symbol={state.symbol}
+                      />
+                    );
+                  }
+                })}
+                <Tooltip title="Add Option">
+                  <Fab color="primary" onClick={e => dispatch({ type: "add" })}>
+                    <AddIcon />
+                  </Fab>
+                </Tooltip>
+              </GridColumn>
+            </Grid>
+          </Grid>
+
+          <Grid item sm={12} md={8}>
+            <Grid
+              direction="column"
               container
               justify="center"
               alignItems="center"
               spacing={1}
             >
-              <Grid item>
-                Max Risk: ${maxRisk.toFixed(2)} <br />
-                Max Profit: ${maxProfit.toFixed(2)}
+              <Grid
+                direction="row"
+                item
+                container
+                justify="center"
+                alignItems="center"
+                spacing={1}
+              >
+                <Grid item>
+                  Max Risk: ${maxRisk.toFixed(2)} <br />
+                  Max Profit: ${maxProfit.toFixed(2)}
+                </Grid>
+                <Grid item>
+                  Entry {entryCost > 0 ? "Credit" : "Debit"}: $
+                  {entryCost.toFixed(2)} <br />
+                  Max Gains: {((maxProfit / -maxRisk) * 100).toFixed(0)}%
+                </Grid>
               </Grid>
-              <Grid item>
-                Entry {entryCost > 0 ? "Credit" : "Debit"}: $
-                {entryCost.toFixed(2)} <br />
-                Max Gains: {((maxProfit / -maxRisk) * 100).toFixed(0)}%
-              </Grid>
-            </Grid>
 
-            <Grid item>
-              <TableContainer component={Paper}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell className={classes.headerCell}>
-                        Price
-                      </TableCell>
-                      {dateRange.map(d => (
-                        <TableCell key={d} className={classes.headerCell}>
-                          {moment()
-                            .add(d, "days")
-                            .format("MM/DD")}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {predictedPriceRange.map(price => {
-                      return (
-                        <TableRow>
-                          <Tooltip
-                            enterDelay={300}
-                            title={`${(
-                              ((price - state.price) / state.price) *
-                              100
-                            ).toFixed(0)}%`}
-                          >
-                            <TableCell className={classes.headerCell}>
-                              ${price}
-                            </TableCell>
-                          </Tooltip>
-                          {dateRange.map(date => {
-                            return (
-                              // <Tooltip
-                              //   enterDelay={3000}
-                              //   interactive
-                              //   title={<></>
-                              // <div>
-                              //   <Typography color="inherit">
-                              //     Breakdown
-                              //   </Typography>
-                              //   <Table>
-                              //     <TableRow>
-                              //       <TableCell style={{ color: "#ffffff" }}>
-                              //         SPY 4/20 $420c
-                              //       </TableCell>
-                              //       <TableCell>15</TableCell>
-                              //     </TableRow>
-                              //     <TableRow>
-                              //       <TableCell>
-                              //         SPY 4/20 $420c
-                              //       </TableCell>
-                              //       <TableCell>15</TableCell>
-                              //     </TableRow>
-                              //   </Table>
-                              // </div>
-                              //   }
-                              // >
-                              <TableCell
-                                style={{
-                                  backgroundColor: gradient(
-                                    maxRisk,
-                                    maxProfit,
-                                    calcs[price][date]["profit"]
-                                  )
-                                }}
-                                className={classes.smallCell}
-                              >
-                                {state.display.profit ===
-                                ProfitDisplay.PercentRisk
-                                  ? (
-                                      (calcs[price][date]["profit"] /
-                                        (-1 * maxRisk)) *
-                                      100
-                                    ).toFixed(0)
-                                  : calcs[price][date]["profit"].toFixed(2)}
-                              </TableCell>
-                              // </Tooltip>
-                            );
-                          })}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Grid>
-            <Grid
-              item
-              container
-              direction="row"
-              justify="center"
-              alignItems="flex-end"
-              spacing={1}
-            >
               <Grid item>
-                <FormControl>
-                  <InputLabel id="display-select-label">Display</InputLabel>
-                  <Select
-                    autoWidth
-                    labelId="display-select-label"
-                    value={state.display.profit}
+                <TableContainer component={Paper}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell className={classes.headerCell}>
+                          Price
+                        </TableCell>
+                        {dateRange.map(d => (
+                          <TableCell key={d} className={classes.headerCell}>
+                            {moment()
+                              .add(d, "days")
+                              .format("MM/DD")}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {predictedPriceRange.map(price => {
+                        return (
+                          <TableRow>
+                            <Tooltip
+                              enterDelay={300}
+                              title={`${(
+                                ((price - state.price) / state.price) *
+                                100
+                              ).toFixed(0)}%`}
+                            >
+                              <TableCell className={classes.headerCell}>
+                                ${price}
+                              </TableCell>
+                            </Tooltip>
+                            {dateRange.map(date => {
+                              return (
+                                // <Tooltip
+                                //   enterDelay={3000}
+                                //   interactive
+                                //   title={<></>
+                                // <div>
+                                //   <Typography color="inherit">
+                                //     Breakdown
+                                //   </Typography>
+                                //   <Table>
+                                //     <TableRow>
+                                //       <TableCell style={{ color: "#ffffff" }}>
+                                //         SPY 4/20 $420c
+                                //       </TableCell>
+                                //       <TableCell>15</TableCell>
+                                //     </TableRow>
+                                //     <TableRow>
+                                //       <TableCell>
+                                //         SPY 4/20 $420c
+                                //       </TableCell>
+                                //       <TableCell>15</TableCell>
+                                //     </TableRow>
+                                //   </Table>
+                                // </div>
+                                //   }
+                                // >
+                                <TableCell
+                                  style={{
+                                    backgroundColor: gradient(
+                                      maxRisk,
+                                      maxProfit,
+                                      calcs[price][date]["profit"]
+                                    )
+                                  }}
+                                  className={classes.smallCell}
+                                >
+                                  {state.display.profit ===
+                                  ProfitDisplay.PercentRisk
+                                    ? (
+                                        (calcs[price][date]["profit"] /
+                                          (-1 * maxRisk)) *
+                                        100
+                                      ).toFixed(0)
+                                    : calcs[price][date]["profit"].toFixed(2)}
+                                </TableCell>
+                                // </Tooltip>
+                              );
+                            })}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Grid>
+              <Grid
+                item
+                container
+                direction="row"
+                justify="center"
+                alignItems="flex-end"
+                spacing={1}
+              >
+                <Grid item>
+                    <TextField
+                      select
+                      variant="outlined"
+                      size="small"
+                      label="Display"
+                      value={state.display.profit}
+                      onChange={e =>
+                        dispatch({
+                          type: "display",
+                          payload: { field: "profit", value: e.target.value }
+                        })
+                      }
+                    >
+                      <MenuItem value={ProfitDisplay.Absolute}>
+                        Absolute Profit
+                      </MenuItem>
+                      <MenuItem value={ProfitDisplay.PercentRisk}>
+                        Percent of Max Risk
+                      </MenuItem>
+                    </TextField>
+                </Grid>
+                <Grid item>
+                  <TextField
+                    variant="outlined"
+                    size="small"
+                    defaultValue={state.display.minPrice}
+                    label="Min Price"
                     onChange={e =>
                       dispatch({
                         type: "display",
-                        payload: { field: "profit", value: e.target.value }
+                        payload: {
+                          field: "minPrice",
+                          value: Number(e.target.value)
+                        }
                       })
                     }
-                  >
-                    <MenuItem value={ProfitDisplay.Absolute}>
-                      Absolute Profit
-                    </MenuItem>
-                    <MenuItem value={ProfitDisplay.PercentRisk}>
-                      Percent of Max Risk
-                    </MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item>
-                <TextField
-                  variant="outlined"
-                  size="small"
-                  defaultValue={state.display.minPrice}
-                  label="Min Price"
-                  onChange={e =>
-                    dispatch({
-                      type: "display",
-                      payload: {
-                        field: "minPrice",
-                        value: Number(e.target.value)
-                      }
-                    })
-                  }
-                ></TextField>
-              </Grid>
-              <Grid item>
-                <TextField
-                  variant="outlined"
-                  size="small"
-                  defaultValue={state.display.maxPrice}
-                  label="Max Price"
-                  onChange={e =>
-                    dispatch({
-                      type: "display",
-                      payload: {
-                        field: "maxPrice",
-                        value: Number(e.target.value)
-                      }
-                    })
-                  }
-                ></TextField>
+                  ></TextField>
+                </Grid>
+                <Grid item>
+                  <TextField
+                    variant="outlined"
+                    size="small"
+                    defaultValue={state.display.maxPrice}
+                    label="Max Price"
+                    onChange={e =>
+                      dispatch({
+                        type: "display",
+                        payload: {
+                          field: "maxPrice",
+                          value: Number(e.target.value)
+                        }
+                      })
+                    }
+                  ></TextField>
+                </Grid>
               </Grid>
             </Grid>
           </Grid>
         </Grid>
-      </Grid>
-    </div>
-  );
+      </div>
+    );
+  } else {
+    return <></>;
+  }
 }
 
 export default App;

@@ -26,6 +26,7 @@ export type State = {
   iv: number;
   display: DisplayOptions;
   nextOptId: number;
+  loaded : boolean;
 };
 
 export enum OptionField {
