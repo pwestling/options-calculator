@@ -137,8 +137,8 @@ function SymbolCard(props: {
               variant="outlined"
               onClick={() => {
                 storeState(props.state).then(result => {
-                  setPermalink(`${window.location.protocol}/${window.location.host}/${result}`)
-                  window.history.pushState("", "", `/${result}`);
+                  setPermalink(`${window.location.protocol}/${window.location.host}?code=${result}`)
+                  window.history.pushState("", "", `?code=${result}`);
                 });
               }}
             >
@@ -243,9 +243,9 @@ function App(): React.ReactElement {
   let path = window.location.pathname.match(/\/([0-9a-z]+)/)
 
   useEffect(() => {
-    if (path) {
+    if (urlParams.has("code")) {
       try {
-        retrieveState(path[1]).then(result => {
+        retrieveState(urlParams.get("code") as string).then(result => {
           if (result !== null) {
             dispatch({ type: "set-state", payload: result });
           }
@@ -264,7 +264,7 @@ function App(): React.ReactElement {
       symbol: "SPY",
       display: { profit: ProfitDisplay.PercentRisk },
       nextOptId: 0,
-      loaded: !path
+      loaded: !urlParams.has("code")
     };
   }, []);
 
