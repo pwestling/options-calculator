@@ -32,6 +32,7 @@ import base64url from "base64url";
 import { useStyles } from "./Styles";
 import ByteBuffer from "byte-buffer";
 import axios from "axios";
+import yf from "yahoo-finance-client-ts"
 
 import { v4 as uuidv4 } from "uuid";
 import produce from "immer";
@@ -94,6 +95,11 @@ function SymbolCard(props: {
                   payload: { symbol: e.target.value }
                 })
               }
+              onBlur={(e) => {
+                if(e){
+                  yf.quote(e.target.value).then(quote => setPricePlaceholder(quote.bid.toFixed(2)))
+                }
+              }}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -102,6 +108,7 @@ function SymbolCard(props: {
                 variant="outlined"
                 size="small"
                 label="Stock Price"
+                placeholder={pricePlaceholder}
                 margin="none"
                 defaultValue={props.price > 0 ? props.price : null}
                 onChange={e =>
@@ -273,6 +280,7 @@ function App(): React.ReactElement {
       let newstate = produce(state, draft => {
         switch (action.type) {
           case "set-state": {
+            console.log("setting state to", action.payload);
             return action.payload;
           }
           case "add": {
