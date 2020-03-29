@@ -1,19 +1,19 @@
-import React, { useState, useCallback, useReducer, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useReducer,
+  useMemo
+} from "react";
 import Grid from "@material-ui/core/Grid";
 import Card from "@material-ui/core/Card";
-import CardActions from "@material-ui/core/CardActions";
 import CardContent from "@material-ui/core/CardContent";
-import Typography from "@material-ui/core/Typography";
-import { makeStyles, styled } from "@material-ui/core/styles";
+
 import bs from "black-scholes";
 import moment from "moment";
 import TextField from "@material-ui/core/TextField";
 import Fab from "@material-ui/core/Fab";
-import Button from "@material-ui/core/Button";
 import AddIcon from "@material-ui/icons/Add";
-import CheckIcon from "@material-ui/icons/Check";
-import EditIcon from "@material-ui/icons/Edit";
-import DeleteIcon from "@material-ui/icons/Delete";
 import Select from "@material-ui/core/Select";
 import InputLabel from "@material-ui/core/InputLabel";
 import MenuItem from "@material-ui/core/MenuItem";
@@ -26,377 +26,37 @@ import TableRow from "@material-ui/core/TableRow";
 import Paper from "@material-ui/core/Paper";
 import Tooltip from "@material-ui/core/Tooltip";
 import msgpack from "notepack";
-import RadioGroup from "@material-ui/core/RadioGroup";
-import Radio from "@material-ui/core/Radio";
-import FormControlLabel from "@material-ui/core/FormControlLabel";
-import FormGroup from "@material-ui/core/FormGroup";
 import FormControl from "@material-ui/core/FormControl";
-import FormHelperText from "@material-ui/core/FormHelperText";
 import base64url from "base64url";
+import { useStyles } from "./Styles";
+import ByteBuffer from "byte-buffer";
 
 import { v4 as uuidv4 } from "uuid";
 import produce from "immer";
 import "bootstrap/dist/css/bootstrap.css";
 
 import "./App.css";
-import { IconButton } from "@material-ui/core";
+import {
+  Action,
+  Option,
+  State,
+  Dispatch,
+  DisplayOption,
+  DisplayOptions,
+  ProfitDisplay,
+  ModifyOption,
+  ModifySymbol,
+  OptionField,
+  OptionMap,
+  OptionSale,
+  OptionType,
+  RemoveOption
+} from "./Types";
+import { OptionCard, FixedOptionCard } from "./OptionCards";
+import { effectivePrice } from "./Helpers";
 
 // Initialize Cloud Firestore through Firebase
 const INTEREST_RATE = 0.0;
-
-const useStyles = makeStyles({
-  root: {
-    minWidth: 500
-  },
-  credit: {
-    color: "green"
-  },
-  debit: {
-    color: "red"
-  },
-  bullet: {
-    display: "inline-block",
-    margin: "0 2px",
-    transform: "scale(0.8)"
-  },
-  title: {
-    fontSize: 14
-  },
-  pos: {
-    marginBottom: 12
-  },
-  container: {
-    paddingTop: "4em"
-  },
-  inline: {
-    display: "flex",
-    flexDirection: "row"
-  },
-  pageContainer: {
-    margin: "3em"
-  },
-  smallCell: {
-    padding: "3px"
-  },
-  headerCell: {
-    padding: "3px",
-    fontWeight: 800
-  },
-  marginBot4: {
-    marginBottom: "2em"
-  }
-});
-
-interface OptionMap {
-  [key: string]: Option;
-}
-
-interface Dispatch {
-  (action: Action): void;
-}
-
-enum ProfitDisplay {
-  Absolute,
-  PercentRisk
-}
-
-type DisplayOptions = {
-  profit: ProfitDisplay;
-  maxPrice?: number;
-  minPrice?: number;
-};
-
-type State = {
-  options: OptionMap;
-  symbol: string;
-  price: number;
-  iv: number;
-  display: DisplayOptions;
-  nextOptId: number;
-};
-
-// function serializeState(state : State) : string {
-//    const optionSerializedSize
-// }
-
-enum OptionField {
-  Strike = "strike",
-  Price = "price",
-  Quantity = "quantity",
-  Expiry = "expiry",
-  Type = "type",
-  Editing = "editing",
-  Sale = "sale"
-}
-
-enum OptionSale {
-  Buy = "buy",
-  Sell = "sell"
-}
-
-enum OptionType {
-  Call = "call",
-  Put = "put"
-}
-
-type AddOption = { type: "add" };
-type RemoveOption = { type: "remove"; payload: { id: string } };
-
-type ModifyOption = {
-  type: "modify-option";
-  payload: { id: string; field: OptionField; value: any };
-};
-type ModifySymbol = {
-  type: "modify-symbol";
-  payload: { symbol?: string; price?: number; iv?: number };
-};
-
-type DisplayOption = {
-  type: "display";
-  payload: { field: keyof DisplayOptions; value: any };
-};
-
-type Action =
-  | AddOption
-  | ModifyOption
-  | ModifySymbol
-  | RemoveOption
-  | DisplayOption;
-
-type Option = {
-  id: string;
-  strike: number;
-  price: number;
-  blackScholesPrice?: number;
-  quantity: number;
-  expiry: number;
-  type: OptionType;
-  sale: OptionSale;
-  editing: boolean;
-};
-
-function effectivePrice(opt: Option): number {
-  return (opt.price > 0 ? opt.price : opt.blackScholesPrice) || 0;
-}
-
-function FixedOptionCard(props: {
-  dispatch: Dispatch;
-  id: string;
-  symbol: string;
-  option: Option;
-}): React.ReactElement {
-  const classes = useStyles();
-  const saleClass =
-    props.option.sale === OptionSale.Buy ? classes.debit : classes.credit;
-
-  const expireDate = moment.unix(props.option.expiry).format("MM/DD");
-  return (
-    <Card raised={true}>
-      <CardContent style={{paddingBottom: "1px"}}>
-        <Grid container justify="space-between" direction="row" spacing={0}>
-          <Grid item sm={6} md={8}>
-            <Typography
-              className={classes.title}
-              color="textPrimary"
-              gutterBottom
-            >
-              {props.option.sale.toUpperCase()}
-              {"  "}
-              {props.symbol.toUpperCase()} {expireDate} ${props.option.strike}{" "}
-              {props.option.type}
-              <br /> {props.option.quantity} @ $
-              {effectivePrice(props.option).toFixed(2)}
-            </Typography>
-          </Grid>
-          <Grid item>
-            <Typography className={saleClass} gutterBottom>
-              $
-              {(
-                effectivePrice(props.option) *
-                props.option.quantity *
-                100
-              ).toFixed(2)}
-            </Typography>
-          </Grid>
-        </Grid>
-      </CardContent>
-      <CardActions disableSpacing>
-        <IconButton
-          size="small"
-          onClick={() =>
-            props.dispatch({
-              type: "modify-option",
-              payload: { id: props.id, field: OptionField.Editing, value: true }
-            })
-          }
-        >
-          <EditIcon />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={() =>
-            props.dispatch({ type: "remove", payload: { id: props.id } })
-          }
-        >
-          <DeleteIcon />
-        </IconButton>
-      </CardActions>
-    </Card>
-  );
-}
-
-function OptionCard(props: {
-  dispatch: Dispatch;
-  id: string;
-  symbol: string;
-  currentPrice: number;
-  iv: number;
-  option: Option;
-}): React.ReactElement {
-  let change = useCallback(
-    (field: OptionField, processor: (val: string) => any) => (event: any) => {
-      props.dispatch({
-        type: "modify-option",
-        payload: {
-          id: props.id,
-          field: field,
-          value: processor(event.target.value)
-        }
-      });
-    },
-    []
-  );
-
-  let parseDate: (val: string) => number = val => {
-    try {
-      let entered = moment(val);
-      let now = moment();
-      if (entered.year() === 2001) {
-        entered.year(now.year());
-      }
-      if (entered.isBefore(now)) {
-        entered.add(1, "year");
-      }
-      return entered.unix();
-    } catch (e) {
-      console.log("Could not parse " + val);
-      return 0;
-    }
-  };
-
-  return (
-    <Card style={{ marginBottom: "1em" }} raised={true}>
-      <CardContent>
-        <Grid container spacing={3}>
-          <Grid item xs={6} md={4}>
-            <TextField
-              variant="outlined"
-              size="small"
-              label="Strike"
-              value={props.option.strike > 0 ? props.option.strike : null}
-              onChange={change(OptionField.Strike, Number)}
-            />
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <TextField
-              variant="outlined"
-              size="small"
-              defaultValue={moment.unix(props.option.expiry).format("MM/DD")}
-              label="Expiry"
-              onChange={change(OptionField.Expiry, parseDate)}
-            />
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Price"
-                placeholder={props.option.blackScholesPrice?.toFixed(2)}
-                defaultValue={
-                  props.option.price > 0 ? props.option.price.toFixed(2) : null
-                }
-                onChange={change(OptionField.Price, Number)}
-              />
-              <Tooltip
-                title={`The Black-Scholes equation indicates this option should cost $${(
-                  props.option.blackScholesPrice || 0
-                ).toFixed(2)}  based on the IV and current price`}
-              >
-                <FormHelperText>{`BS: ${(
-                  props.option.blackScholesPrice || 0
-                ).toFixed(2)}`}</FormHelperText>
-              </Tooltip>
-            </FormControl>
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <TextField
-              variant="outlined"
-              size="small"
-              label="Quantity"
-              value={props.option.quantity}
-              onChange={change(OptionField.Quantity, Number)}
-            />
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <RadioGroup
-              name="putCall"
-              value={props.option.type}
-              onChange={change(OptionField.Type, x => x)}
-            >
-              <FormControlLabel
-                value={OptionType.Put}
-                control={<Radio />}
-                label="Put"
-              />
-              <FormControlLabel
-                value={OptionType.Call}
-                control={<Radio />}
-                label="Call"
-              />
-            </RadioGroup>
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <RadioGroup
-              name="buySell"
-              value={props.option.sale}
-              onChange={change(OptionField.Sale, x => x)}
-            >
-              <FormControlLabel
-                value={OptionSale.Buy}
-                control={<Radio />}
-                label="Buy"
-              />
-              <FormControlLabel
-                value={OptionSale.Sell}
-                control={<Radio />}
-                label="Sell"
-              />
-            </RadioGroup>
-          </Grid>
-          <Grid item xs={6} md={4}>
-            <Fab
-              size="small"
-              color="secondary"
-              onClick={e => {
-                props.dispatch({
-                  type: "modify-option",
-                  payload: {
-                    id: props.id,
-                    field: OptionField.Editing,
-                    value: false
-                  }
-                });
-              }}
-            >
-              <CheckIcon />
-            </Fab>
-          </Grid>
-        </Grid>
-      </CardContent>
-    </Card>
-  );
-}
 
 function SymbolCard(props: {
   dispatch: Dispatch;
@@ -405,11 +65,16 @@ function SymbolCard(props: {
   symbol: string;
   price: number;
 }): React.ReactElement {
-  
   return (
     <Card className={props.className} raised>
       <CardContent>
-        <Grid container justify="flex-start" alignItems="flex-end" direction="row" spacing={3}>
+        <Grid
+          container
+          justify="flex-start"
+          alignItems="flex-end"
+          direction="row"
+          spacing={3}
+        >
           <Grid item xs={12} sm={6}>
             <TextField
               variant="outlined"
@@ -426,24 +91,22 @@ function SymbolCard(props: {
             />
           </Grid>
           <Grid item xs={12} sm={6}>
-          <FormControl>
-
-            <TextField
-              variant="outlined"
-              size="small"
-              label="Stock Price"
-              margin="none"
-              defaultValue={props.price}
-              onChange={e =>
-                props.dispatch({
-                  type: "modify-symbol",
-                  payload: { price: Number(e.target.value) }
-                })
-              }
-            />
-            {/* <FormHelperText>Test</FormHelperText> */}
-                      </FormControl>
-
+            <FormControl>
+              <TextField
+                variant="outlined"
+                size="small"
+                label="Stock Price"
+                margin="none"
+                defaultValue={props.price > 0 ? props.price : null}
+                onChange={e =>
+                  props.dispatch({
+                    type: "modify-symbol",
+                    payload: { price: Number(e.target.value) }
+                  })
+                }
+              />
+              {/* <FormHelperText>Test</FormHelperText> */}
+            </FormControl>
           </Grid>
 
           <Grid item xs={12} sm={6}>
@@ -454,8 +117,7 @@ function SymbolCard(props: {
               placeholder="0.66"
               helperText="IV as a decimal"
               margin="none"
-
-              defaultValue={props.iv}
+              defaultValue={props.iv > 0 ? props.iv : null}
               onChange={e =>
                 props.dispatch({
                   type: "modify-symbol",
@@ -525,6 +187,196 @@ function adjustBSPrice(state: State, option: Option) {
     ) / 100;
 }
 
+// const OptionBlob = new ObjectType({
+//   id: types.UInt8,
+//   strike: types.UInt32,
+//   price: types.UInt32,
+//   blackScholesPrice: types.UInt32,
+//   quantity: types.UInt32,
+//   expiry: types.UInt64,
+//   type: types.String,
+//   sale: types.String,
+//   editing: types.Boolean
+// });
+
+// const DisplayOptionBlob = new ObjectType({
+//   profit: types.String,
+//   maxPrice: types.UInt32,
+//   minPrice: types.UInt32
+// });
+
+// const StateBlob = new ObjectType({
+//   options: new ArrayType(OptionBlob),
+//   symbol: types.String,
+//   price: types.UInt32,
+//   iv: types.UInt16,
+//   display: DisplayOptionBlob,
+//   nextOptId: types.UInt8
+// });
+
+function writeString(buffer: ByteBuffer, data: string) {
+  let start = buffer.index;
+  buffer.writeByte(0);
+  if (data.length > 0) {
+    let written = buffer.writeString(data);
+    let end = buffer.index;
+    buffer.index = start;
+    buffer.writeByte(written);
+    console.log();
+    buffer.index = end;
+    console.log("bounds", start, end);
+    console.log(buffer.slice(start, end));
+  }
+}
+
+function readString(buffer: ByteBuffer): string {
+  let length = buffer.readByte();
+  if (length > 0) {
+    return buffer.readString(length);
+  } else {
+    return "";
+  }
+}
+
+function writeDecimal(buffer :ByteBuffer, data : number ){
+  let rounded = Math.round(data*10000) / 10000
+  writeString(buffer, rounded.toString())
+}
+
+function readDecimal(buffer :ByteBuffer ) : number{
+  return Number(readString(buffer))
+}
+
+function stateSer(buffer: ByteBuffer, state: State) {
+  buffer.writeByte(state.options.length);
+  state.options.forEach(o => optSer(buffer, o));
+  writeString(buffer, state.symbol);
+  writeDecimal(buffer, state.price);
+  writeDecimal(buffer, state.iv);
+  dispOptSer(buffer, state.display);
+  buffer.writeByte(state.nextOptId);
+}
+
+function dispOptSer(buffer: ByteBuffer, state: DisplayOptions) {
+  if (state.profit === ProfitDisplay.Absolute) {
+    buffer.writeByte(1);
+  } else {
+    buffer.writeByte(2);
+  }
+  buffer.writeInt(state.minPrice || -1).writeInt(state.maxPrice || -1);
+}
+
+function optSer(buffer: ByteBuffer, option: Option) {
+  console.log("Serializing", option)
+  buffer.writeByte(option.id)
+  writeDecimal(buffer, option.strike);
+
+  writeDecimal(buffer, option.price);
+  writeDecimal(buffer, (option.blackScholesPrice || -1));
+
+  writeDecimal(buffer,option.quantity)
+  writeDecimal(buffer, option.expiry);
+
+  if (option.type === OptionType.Put) {
+    buffer.writeByte(1);
+  } else {
+    buffer.writeByte(2);
+  }
+
+  if (option.sale === OptionSale.Buy) {
+    buffer.writeByte(1);
+  } else {
+    buffer.writeByte(2);
+  }
+}
+
+function stateDeSer(buffer: ByteBuffer): State {
+  let result = {} as State;
+
+  let numOptions = buffer.readByte();
+  console.log("Num options", numOptions);
+  result.options = [];
+  for (let i = 0; i < numOptions; i++) {
+    result.options.push(optDeSer(buffer));
+  }
+  console.log(result)
+  result.symbol = readString(buffer);
+  result.price = readDecimal(buffer);
+  result.iv = readDecimal(buffer)
+  console.log(result)
+  result.display = dispOptDeSer(buffer);
+  result.nextOptId = buffer.readByte();
+  return result;
+}
+
+function dispOptDeSer(buffer: ByteBuffer): DisplayOptions {
+  let result = {} as DisplayOptions;
+  let profit = buffer.readByte();
+
+  if (profit === 1) {
+    result.profit = ProfitDisplay.Absolute;
+  } else {
+    result.profit = ProfitDisplay.PercentRisk;
+  }
+  result.minPrice = buffer.readInt();
+  if (result.minPrice < 0) {
+    delete result.minPrice;
+  }
+  result.maxPrice = buffer.readInt();
+  if (result.maxPrice < 0) {
+    delete result.maxPrice;
+  }
+  return result;
+}
+
+function optDeSer(buffer: ByteBuffer): Option {
+  let result = {} as Option;
+  result.id = buffer.readByte();
+  console.log("Result", result);
+
+  result.strike = readDecimal(buffer);
+  console.log("Result", result);
+
+  result.price = readDecimal(buffer);
+  console.log("Result", result);
+
+  result.blackScholesPrice = readDecimal(buffer);
+  console.log("Result", result);
+
+  result.quantity = readDecimal(buffer)
+  console.log("Result", result);
+
+  result.expiry = readDecimal(buffer)
+  console.log("Result", result);
+
+  let type = buffer.readByte();
+  if (type === 1) {
+    result.type = OptionType.Put;
+  } else {
+    result.type = OptionType.Call;
+  }
+
+  let sale = buffer.readByte();
+  if (sale === 1) {
+    result.sale = OptionSale.Buy;
+  } else {
+    result.sale = OptionSale.Sell;
+  }
+  return result;
+}
+
+function serializeState(state: State): string {
+  let buf = new ByteBuffer();
+  buf.implicitGrowth = true;
+  stateSer(buf, state);
+  return base64url.encode(new Buffer(buf.toArray()));
+}
+
+function deserializeState(state: string): State {
+  let buf = new ByteBuffer(new Buffer(base64url.decode(state)));
+  return stateDeSer(buf);
+}
+
 function App(): React.ReactElement {
   const classes = useStyles();
 
@@ -533,17 +385,16 @@ function App(): React.ReactElement {
   const initialArg: State = useMemo(() => {
     if (urlParams.has("state")) {
       try {
-        let buf = new Buffer(
-          base64url.decode(urlParams.get("state") as string, "hex"),
-          "hex"
-        );
-        return msgpack.decode(buf);
+        let state = deserializeState(urlParams.get("state") as string);
+        return state;
       } catch (e) {
         console.log("State is invalid", e);
       }
     }
     return {
-      options: {},
+      options: [] as Option[],
+      price: -1,
+      iv: -1,
       symbol: "SPY",
       display: { profit: ProfitDisplay.PercentRisk },
       nextOptId: 0
@@ -554,10 +405,13 @@ function App(): React.ReactElement {
     (state: State, action: Action): State => {
       let newstate = produce(state, draft => {
         switch (action.type) {
+          case "set-state": {
+            return action.payload;
+          }
           case "add": {
-            let id = state.nextOptId.toString();
+            let id = state.nextOptId;
             draft.nextOptId = state.nextOptId + 1;
-            draft.options[id] = {
+            draft.options.push({
               id: id,
               strike: -1,
               price: 0,
@@ -574,15 +428,19 @@ function App(): React.ReactElement {
               type: OptionType.Put,
               editing: true,
               sale: OptionSale.Buy
-            };
+            });
             break;
           }
           case "remove": {
-            delete draft.options[action.payload.id];
+            draft.options = draft.options.filter(
+              opt => opt.id !== action.payload.id
+            );
             break;
           }
           case "modify-option": {
-            let option = draft.options[action.payload.id];
+            let option = draft.options.filter(
+              opt => opt.id === action.payload.id
+            )[0];
             (option[action.payload.field] as any) = action.payload.value;
             adjustBSPrice(draft, option);
             break;
@@ -607,8 +465,7 @@ function App(): React.ReactElement {
         }
       });
       try {
-        let buf = msgpack.encode(newstate);
-        let encoded = base64url.encode(buf.toString("hex"), "hex");
+        let encoded = serializeState(newstate);
         window.history.pushState("", "", `/?state=${encoded}`);
       } catch (e) {
         console.log("State cannot be serialized");
@@ -720,11 +577,11 @@ function App(): React.ReactElement {
                 price={state.price}
                 dispatch={dispatch}
               />
-              {Object.entries(state.options).map(([id, option]) => {
+              {state.options.map(option => {
                 if (option.editing) {
                   return (
                     <OptionCard
-                      id={id}
+                      id={option.id}
                       iv={state.iv}
                       currentPrice={state.price}
                       dispatch={dispatch}
@@ -735,7 +592,7 @@ function App(): React.ReactElement {
                 } else {
                   return (
                     <FixedOptionCard
-                      id={id}
+                      id={option.id}
                       dispatch={dispatch}
                       option={option}
                       symbol={state.symbol}
@@ -775,8 +632,7 @@ function App(): React.ReactElement {
               <Grid item>
                 Entry {entryCost > 0 ? "Credit" : "Debit"}: $
                 {entryCost.toFixed(2)} <br />
-                Max Gains:{" "}
-                {((maxProfit / -maxRisk) * 100).toFixed(0)}%
+                Max Gains: {((maxProfit / -maxRisk) * 100).toFixed(0)}%
               </Grid>
             </Grid>
 
@@ -789,7 +645,7 @@ function App(): React.ReactElement {
                         Price
                       </TableCell>
                       {dateRange.map(d => (
-                        <TableCell className={classes.headerCell}>
+                        <TableCell key={d} className={classes.headerCell}>
                           {moment()
                             .add(d, "days")
                             .format("MM/DD")}
