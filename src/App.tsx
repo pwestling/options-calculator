@@ -256,7 +256,6 @@ function App(): React.ReactElement {
   const classes = useStyles();
 
   var urlParams = new URLSearchParams(window.location.search);
-  let path = window.location.pathname.match(/\/([0-9a-z]+)/);
 
   useEffect(() => {
     if (urlParams.has("code")) {
@@ -705,9 +704,9 @@ function App(): React.ReactElement {
                       onClick={() => {
                         storeState(state).then(result => {
                           setPermalink(
-                            `${window.location.protocol}/${window.location.host}/${result}`
+                            `${window.location.protocol}/${window.location.host}?code=${result}`
                           );
-                          window.history.pushState("", "", `/${result}`);
+                          window.history.pushState("", "", `?code=${result}`);
                         });
                       }}
                     >
