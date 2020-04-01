@@ -23,7 +23,6 @@ import { effectivePrice } from "./Helpers";
 import { ContractData } from "yahoo-finance-client-ts";
 
 import { IconButton } from "@material-ui/core";
-import ParsedTextField from "./ParsedTextField";
 
 import { Option, Dispatch, OptionSale, OptionType, OptionCache } from "./Types";
 
