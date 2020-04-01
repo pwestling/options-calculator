@@ -82,21 +82,21 @@ function SymbolCard(props: {
   let [symbolHelperText, setSymbolHelperText] = useState("");
   let [userEditedPrice, setUserEditedPrice] = useState(false);
 
-
   let querySymbol = (symbol: string) => {
     if (symbol) {
       yf.quote(symbol).then(quote => {
         if (quote) {
+          console.log("Quote", quote, "User edited", userEditedPrice);
           if (!userEditedPrice) {
+            let price =
+              quote.bid || quote.postMarketPrice || quote.regularMarketPrice;
             props.dispatch({
               type: "modify-symbol",
-              payload: { price: Number(quote.bid) }
+              payload: { price: price }
             });
 
-            if (quote.bid) {
-              setPricePlaceholder(quote.bid.toFixed(2));
-              setPriceString(quote.bid.toFixed(2));
-            }
+            setPricePlaceholder(price?.toFixed(2) || "");
+            setPriceString(price?.toFixed(2) || "");
           }
           if (quote.shortName) {
             setSymbolHelperText(quote.shortName);
@@ -151,7 +151,7 @@ function SymbolCard(props: {
                 margin="none"
                 value={priceString}
                 onChange={e => {
-                  setUserEditedPrice(true)
+                  setUserEditedPrice(true);
                   setPriceString(e.target.value);
                   try {
                     props.dispatch({
