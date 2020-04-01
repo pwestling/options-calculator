@@ -1,4 +1,4 @@
-
+import { OptionChain } from "yahoo-finance-client-ts";
 
 export interface OptionMap {
   [key: string]: Option;
@@ -23,21 +23,10 @@ export type State = {
   options: Option[];
   symbol: string;
   price: number;
-  iv: number;
   display: DisplayOptions;
   nextOptId: number;
-  loaded : boolean;
+  loaded: boolean;
 };
-
-export enum OptionField {
-  Strike = "strike",
-  Price = "price",
-  Quantity = "quantity",
-  Expiry = "expiry",
-  Type = "type",
-  Editing = "editing",
-  Sale = "sale"
-}
 
 export enum OptionSale {
   Buy = "buy",
@@ -48,7 +37,7 @@ export enum OptionType {
   Call = "call",
   Put = "put"
 }
-export type SetState = { type: "set-state"; payload : State };
+export type SetState = { type: "set-state"; payload: State };
 
 export type AddOption = { type: "add" };
 
@@ -56,7 +45,7 @@ export type RemoveOption = { type: "remove"; payload: { id: number } };
 
 export type ModifyOption = {
   type: "modify-option";
-  payload: { id: number; field: OptionField; value: any };
+  payload: { id: number; field: keyof Option; value: any };
 };
 export type ModifySymbol = {
   type: "modify-symbol";
@@ -76,14 +65,19 @@ export type Action =
   | DisplayOption
   | SetState;
 
-  export type Option = {
+export type Option = {
   id: number;
   strike: number;
   price: number;
-  blackScholesPrice?: number;
+  iv: number;
   quantity: number;
   expiry: number;
   type: OptionType;
   sale: OptionSale;
   editing: boolean;
+  hidden: boolean;
+};
+
+export type OptionCache = {
+  (symbol: string, date: string): Promise<OptionChain>;
 };

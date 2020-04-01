@@ -1,6 +1,7 @@
 
 import {Option} from "./Types"
+import React, {useEffect, useRef} from "react"
 
 export function effectivePrice(opt: Option): number {
-  return (opt.price > 0 ? opt.price : opt.blackScholesPrice) || 0;
+  return opt.price;
 }

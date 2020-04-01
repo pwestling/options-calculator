@@ -18,6 +18,9 @@ export const useStyles = makeStyles({
   title: {
     fontSize: 14
   },
+  muted: {
+    opacity: 0.5
+  },
   pos: {
     marginBottom: 12
   },

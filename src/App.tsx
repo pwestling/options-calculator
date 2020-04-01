@@ -5,6 +5,7 @@ import React, {
   useReducer,
   useMemo
 } from "react";
+import { useDebounce } from "react-use";
 import Grid from "@material-ui/core/Grid";
 import Card from "@material-ui/core/Card";
 import CardContent from "@material-ui/core/CardContent";
@@ -15,6 +16,7 @@ import TextField from "@material-ui/core/TextField";
 import Fab from "@material-ui/core/Fab";
 import Button from "@material-ui/core/Button";
 import AddIcon from "@material-ui/icons/Add";
+import LinkIcon from "@material-ui/icons/Link";
 import Select from "@material-ui/core/Select";
 import InputLabel from "@material-ui/core/InputLabel";
 import MenuItem from "@material-ui/core/MenuItem";
@@ -32,7 +34,8 @@ import base64url from "base64url";
 import { useStyles } from "./Styles";
 import ByteBuffer from "byte-buffer";
 import axios from "axios";
-import yf from "yahoo-finance-client-ts"
+import YahooFinance from "yahoo-finance-client-ts";
+import { OptionChain } from "yahoo-finance-client-ts";
 
 import { v4 as uuidv4 } from "uuid";
 import produce from "immer";
@@ -49,29 +52,74 @@ import {
   ProfitDisplay,
   ModifyOption,
   ModifySymbol,
-  OptionField,
   OptionMap,
   OptionSale,
   OptionType,
-  RemoveOption
+  RemoveOption,
+  OptionCache
 } from "./Types";
 import { OptionCard, FixedOptionCard } from "./OptionCards";
 import { effectivePrice } from "./Helpers";
 
 const INTEREST_RATE = 0.0;
+const yf = window.location.host.includes("localhost")
+  ? new YahooFinance("https://query1.finance.yahoo.com/v7/finance")
+  : new YahooFinance(
+      `${window.location.protocol}//${window.location.host}/finance`
+    );
 
 function SymbolCard(props: {
   dispatch: Dispatch;
   className?: any;
-  iv: number;
   symbol: string;
   price: number;
   state: State;
 }): React.ReactElement {
-  
-  let [permalink, setPermalink] = useState("")
-  let [pricePlaceholder, setPricePlaceholder] = useState("")
-  
+  let [pricePlaceholder, setPricePlaceholder] = useState("");
+  let [priceString, setPriceString] = useState(
+    props.price > 0 ? props.price.toString() : ""
+  );
+  let [symbolHelperText, setSymbolHelperText] = useState("");
+  let [userEditedPrice, setUserEditedPrice] = useState(false);
+
+
+  let querySymbol = (symbol: string) => {
+    if (symbol) {
+      yf.quote(symbol).then(quote => {
+        if (quote) {
+          if (!userEditedPrice) {
+            props.dispatch({
+              type: "modify-symbol",
+              payload: { price: Number(quote.bid) }
+            });
+
+            if (quote.bid) {
+              setPricePlaceholder(quote.bid.toFixed(2));
+              setPriceString(quote.bid.toFixed(2));
+            }
+          }
+          if (quote.shortName) {
+            setSymbolHelperText(quote.shortName);
+          } else if (quote.longName) {
+            setSymbolHelperText(quote.longName);
+          }
+        }
+      });
+    }
+  };
+  useEffect(() => {
+    if (props.symbol && props.symbol.length > 0) {
+      querySymbol(props.symbol);
+    }
+  }, []);
+  let updateSymbol = (e: React.ChangeEvent<HTMLInputElement>) => {
+    props.dispatch({
+      type: "modify-symbol",
+      payload: { symbol: e.target.value || "" }
+    });
+    querySymbol(e.target.value);
+  };
+
   return (
     <Card className={props.className} raised>
       <CardContent>
@@ -88,18 +136,9 @@ function SymbolCard(props: {
               size="small"
               label="Symbol"
               margin="none"
+              helperText={symbolHelperText}
               value={props.symbol}
-              onChange={e =>
-                props.dispatch({
-                  type: "modify-symbol",
-                  payload: { symbol: e.target.value }
-                })
-              }
-              onBlur={(e) => {
-                if(e){
-                  yf.quote(e.target.value).then(quote => setPricePlaceholder(quote.bid.toFixed(2)))
-                }
-              }}
+              onChange={updateSymbol}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -110,56 +149,25 @@ function SymbolCard(props: {
                 label="Stock Price"
                 placeholder={pricePlaceholder}
                 margin="none"
-                defaultValue={props.price > 0 ? props.price : null}
-                onChange={e =>
-                  props.dispatch({
-                    type: "modify-symbol",
-                    payload: { price: Number(e.target.value) }
-                  })
-                }
+                value={priceString}
+                onChange={e => {
+                  setUserEditedPrice(true)
+                  setPriceString(e.target.value);
+                  try {
+                    props.dispatch({
+                      type: "modify-symbol",
+                      payload: { price: Number(e.target.value) }
+                    });
+                  } catch (e) {
+                    props.dispatch({
+                      type: "modify-symbol",
+                      payload: { price: 0 }
+                    });
+                  }
+                }}
               />
-              {/* <FormHelperText>Test</FormHelperText> */}
             </FormControl>
           </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              variant="outlined"
-              size="small"
-              label="IV"
-              placeholder="0.66"
-              helperText="IV as a decimal"
-              margin="none"
-              defaultValue={props.iv > 0 ? props.iv : null}
-              onChange={e =>
-                props.dispatch({
-                  type: "modify-symbol",
-                  payload: { iv: Number(e.target.value) }
-                })
-              }
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                storeState(props.state).then(result => {
-                  setPermalink(`${window.location.protocol}/${window.location.host}?code=${result}`)
-                  window.history.pushState("", "", `?code=${result}`);
-                });
-              }}
-            >
-              Create Link
-            </Button>
-          </Grid>
-          {permalink.length > 0 ?  <Grid item container alignContent="stretch" xs={12}>
-            <TextField
-              fullWidth
-              value={permalink}
-              label="Permalink"
-              variant="outlined"
-              contentEditable={false} />
-          </Grid> : <></>}
         </Grid>
       </CardContent>
     </Card>
@@ -206,19 +214,19 @@ function gradient(maxRisk: number, maxProfit: number, profit: number): string {
 }
 
 function adjustBSPrice(state: State, option: Option) {
-  let yearsToExpiry =
-    moment.duration(moment.unix(option.expiry).diff(moment())).asDays() / 360.0;
-  option.blackScholesPrice =
-    Math.round(
-      bs.blackScholes(
-        state.price,
-        option.strike,
-        yearsToExpiry,
-        state.iv,
-        INTEREST_RATE,
-        option.type
-      ) * 100
-    ) / 100;
+  // let yearsToExpiry =
+  //   moment.duration(moment.unix(option.expiry).diff(moment())).asDays() / 360.0;
+  // option.blackScholesPrice =
+  //   Math.round(
+  //     bs.blackScholes(
+  //       state.price,
+  //       option.strike,
+  //       yearsToExpiry,
+  //       state.iv,
+  //       INTEREST_RATE,
+  //       option.type
+  //     ) * 100
+  //   ) / 100;
 }
 
 const boxUrl = "https://jsonbox.io/box_5fa832a14b0bc099f9e0";
@@ -242,12 +250,13 @@ function retrieveState(id: string): Promise<State | null> {
     }
   );
 }
+const cache = {} as any;
 
 function App(): React.ReactElement {
   const classes = useStyles();
 
   var urlParams = new URLSearchParams(window.location.search);
-  let path = window.location.pathname.match(/\/([0-9a-z]+)/)
+  let path = window.location.pathname.match(/\/([0-9a-z]+)/);
 
   useEffect(() => {
     if (urlParams.has("code")) {
@@ -263,12 +272,14 @@ function App(): React.ReactElement {
     }
   }, []);
 
+  let [permalink, setPermalink] = useState("");
+
   const initialArg: State = useMemo(() => {
     return {
       options: [] as Option[],
       price: -1,
       iv: -1,
-      symbol: "SPY",
+      symbol: "",
       display: { profit: ProfitDisplay.PercentRisk },
       nextOptId: 0,
       loaded: !urlParams.has("code")
@@ -290,6 +301,7 @@ function App(): React.ReactElement {
               id: id,
               strike: -1,
               price: 0,
+              iv: 0,
               quantity:
                 Object.values(state.options).length > 0
                   ? Object.values(state.options)[0].quantity
@@ -302,6 +314,7 @@ function App(): React.ReactElement {
                       .unix(),
               type: OptionType.Put,
               editing: true,
+              hidden: false,
               sale: OptionSale.Buy
             });
             break;
@@ -313,6 +326,7 @@ function App(): React.ReactElement {
             break;
           }
           case "modify-option": {
+            // console.log("modify", action)
             let option = draft.options.filter(
               opt => opt.id === action.payload.id
             )[0];
@@ -321,13 +335,12 @@ function App(): React.ReactElement {
             break;
           }
           case "modify-symbol": {
-            draft.symbol = action.payload.symbol
-              ? action.payload.symbol
-              : draft.symbol;
-            draft.price = action.payload.price
-              ? action.payload.price
-              : draft.price;
-            draft.iv = action.payload.iv ? action.payload.iv : draft.iv;
+            draft.symbol =
+              action.payload.symbol != null
+                ? action.payload.symbol
+                : draft.symbol;
+            draft.price =
+              action.payload.price != null ? action.payload.price : draft.price;
             Object.values(draft.options).forEach(opt =>
               adjustBSPrice(draft, opt)
             );
@@ -342,6 +355,23 @@ function App(): React.ReactElement {
       return newstate;
     },
     initialArg
+  );
+
+  let optionData: OptionCache = useCallback(
+    (symbol: string, expiry: string) => {
+      if (cache[symbol] == null) {
+        cache[symbol] = {};
+      }
+      if (cache[symbol][expiry] == null) {
+        return yf.options(symbol, expiry).then(res => {
+          cache[symbol][expiry] = res;
+          return res;
+        });
+      } else {
+        return Promise.resolve(cache[symbol][expiry]);
+      }
+    },
+    []
   );
 
   let strikes = Object.values(state.options).map(o => o.strike);
@@ -378,40 +408,44 @@ function App(): React.ReactElement {
     calcs[predictedPrice] = {};
     dateRange.forEach(daysFromNow => {
       calcs[predictedPrice][daysFromNow] = { price: 0, profit: 0 };
-      Object.values(state.options).forEach(option => {
-        let yearsToExpiry =
-          moment
-            .duration(
-              moment.unix(option.expiry).diff(moment().add(daysFromNow, "days"))
-            )
-            .asDays() / 360.0;
-        let modifier = option.sale === OptionSale.Buy ? 1 : -1;
-        let optionProjectedPrice = 0;
-        if (yearsToExpiry > 0) {
-          optionProjectedPrice = bs.blackScholes(
-            predictedPrice,
-            option.strike,
-            yearsToExpiry,
-            state.iv,
-            INTEREST_RATE,
-            option.type
-          );
-        } else if (option.type === OptionType.Call) {
-          optionProjectedPrice = Math.max(0, predictedPrice - option.strike);
-        } else if (option.type === OptionType.Put) {
-          optionProjectedPrice = Math.max(0, option.strike - predictedPrice);
-        }
-        if (isNaN(optionProjectedPrice)) {
-          optionProjectedPrice = 0;
-        }
-        calcs[predictedPrice][daysFromNow]["profit"] +=
-          (optionProjectedPrice * modifier +
-            effectivePrice(option) * -modifier) *
-          100 *
-          option.quantity;
-        calcs[predictedPrice][daysFromNow]["price"] +=
-          optionProjectedPrice * modifier;
-      });
+      Object.values(state.options)
+        .filter(o => !o.hidden)
+        .forEach(option => {
+          let yearsToExpiry =
+            moment
+              .duration(
+                moment
+                  .unix(option.expiry)
+                  .diff(moment().add(daysFromNow, "days"))
+              )
+              .asDays() / 360.0;
+          let modifier = option.sale === OptionSale.Buy ? 1 : -1;
+          let optionProjectedPrice = 0;
+          if (yearsToExpiry > 0) {
+            optionProjectedPrice = bs.blackScholes(
+              predictedPrice,
+              option.strike,
+              yearsToExpiry,
+              option.iv,
+              INTEREST_RATE,
+              option.type
+            );
+          } else if (option.type === OptionType.Call) {
+            optionProjectedPrice = Math.max(0, predictedPrice - option.strike);
+          } else if (option.type === OptionType.Put) {
+            optionProjectedPrice = Math.max(0, option.strike - predictedPrice);
+          }
+          if (isNaN(optionProjectedPrice)) {
+            optionProjectedPrice = 0;
+          }
+          calcs[predictedPrice][daysFromNow]["profit"] +=
+            (optionProjectedPrice * modifier +
+              effectivePrice(option) * -modifier) *
+            100 *
+            option.quantity;
+          calcs[predictedPrice][daysFromNow]["price"] +=
+            optionProjectedPrice * modifier;
+        });
       maxRisk = Math.min(maxRisk, calcs[predictedPrice][daysFromNow]["profit"]);
       maxProfit = Math.max(
         maxProfit,
@@ -421,7 +455,14 @@ function App(): React.ReactElement {
   });
 
   let entryCost = Object.values(state.options)
-    .map(o => effectivePrice(o) * 100 * (o.sale === OptionSale.Buy ? -1 : 1))
+    .filter(o => !o.hidden)
+    .map(
+      o =>
+        effectivePrice(o) *
+        o.quantity *
+        100 *
+        (o.sale === OptionSale.Buy ? -1 : 1)
+    )
     .reduce((a, b) => a + b, 0);
 
   if (state.loaded) {
@@ -438,7 +479,6 @@ function App(): React.ReactElement {
             >
               <GridColumn>
                 <SymbolCard
-                  iv={state.iv}
                   className={classes.marginBot4}
                   symbol={state.symbol}
                   price={state.price}
@@ -450,11 +490,12 @@ function App(): React.ReactElement {
                     return (
                       <OptionCard
                         id={option.id}
-                        iv={state.iv}
+                        iv={option.iv}
                         currentPrice={state.price}
                         dispatch={dispatch}
                         option={option}
                         symbol={state.symbol}
+                        optionData={optionData}
                       />
                     );
                   } else {
@@ -597,30 +638,31 @@ function App(): React.ReactElement {
                 container
                 direction="row"
                 justify="center"
-                alignItems="flex-end"
+                alignItems="center"
                 spacing={1}
+                style={{ marginTop: "0.5em" }}
               >
                 <Grid item>
-                    <TextField
-                      select
-                      variant="outlined"
-                      size="small"
-                      label="Display"
-                      value={state.display.profit}
-                      onChange={e =>
-                        dispatch({
-                          type: "display",
-                          payload: { field: "profit", value: e.target.value }
-                        })
-                      }
-                    >
-                      <MenuItem value={ProfitDisplay.Absolute}>
-                        Absolute Profit
-                      </MenuItem>
-                      <MenuItem value={ProfitDisplay.PercentRisk}>
-                        Percent of Max Risk
-                      </MenuItem>
-                    </TextField>
+                  <TextField
+                    select
+                    variant="outlined"
+                    size="small"
+                    label="Display"
+                    value={state.display.profit}
+                    onChange={e =>
+                      dispatch({
+                        type: "display",
+                        payload: { field: "profit", value: e.target.value }
+                      })
+                    }
+                  >
+                    <MenuItem value={ProfitDisplay.Absolute}>
+                      Absolute Profit
+                    </MenuItem>
+                    <MenuItem value={ProfitDisplay.PercentRisk}>
+                      Percent of Max Risk
+                    </MenuItem>
+                  </TextField>
                 </Grid>
                 <Grid item>
                   <TextField
@@ -656,7 +698,43 @@ function App(): React.ReactElement {
                     }
                   ></TextField>
                 </Grid>
+                <Grid item>
+                  <Tooltip title="Create Permalink">
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        storeState(state).then(result => {
+                          setPermalink(
+                            `${window.location.protocol}/${window.location.host}/${result}`
+                          );
+                          window.history.pushState("", "", `/${result}`);
+                        });
+                      }}
+                    >
+                      <LinkIcon />
+                    </Button>
+                  </Tooltip>
+                </Grid>
               </Grid>
+              {permalink.length > 0 ? (
+                <Grid
+                  item
+                  container
+                  justify="flex-start"
+                  alignContent="flex-start"
+                  xs={6}
+                >
+                  <TextField
+                    fullWidth
+                    value={permalink}
+                    label="Permalink"
+                    variant="outlined"
+                    contentEditable={false}
+                  />
+                </Grid>
+              ) : (
+                <></>
+              )}
             </Grid>
           </Grid>
         </Grid>
