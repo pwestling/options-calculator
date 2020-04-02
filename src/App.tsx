@@ -35,7 +35,7 @@ import { useStyles } from "./Styles";
 import ByteBuffer from "byte-buffer";
 import axios from "axios";
 import YahooFinance from "yahoo-finance-client-ts";
-import { OptionChain } from "yahoo-finance-client-ts";
+import { OptionChain, OptionMeta } from "yahoo-finance-client-ts";
 
 import { v4 as uuidv4 } from "uuid";
 import produce from "immer";
@@ -74,6 +74,7 @@ function SymbolCard(props: {
   symbol: string;
   price: number;
   state: State;
+  updateOptionMeta: () => void;
 }): React.ReactElement {
   let [pricePlaceholder, setPricePlaceholder] = useState("");
   let [priceString, setPriceString] = useState(
@@ -86,7 +87,6 @@ function SymbolCard(props: {
     if (symbol) {
       yf.quote(symbol).then(quote => {
         if (quote) {
-          console.log("Quote", quote, "User edited", userEditedPrice);
           if (!userEditedPrice) {
             let price =
               quote.bid || quote.postMarketPrice || quote.regularMarketPrice;
@@ -139,6 +139,7 @@ function SymbolCard(props: {
               helperText={symbolHelperText}
               value={props.symbol}
               onChange={updateSymbol}
+              onBlur={props.updateOptionMeta}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -272,6 +273,8 @@ function App(): React.ReactElement {
   }, []);
 
   let [permalink, setPermalink] = useState("");
+  let [optionMeta, setOptionMeta] = useState<OptionMeta | null>(null);
+
 
   const initialArg: State = useMemo(() => {
     return {
@@ -293,6 +296,10 @@ function App(): React.ReactElement {
             console.log("setting state to", action.payload);
             return action.payload;
           }
+          case "clear-options": {
+            draft.options = []
+            break;
+          }
           case "add": {
             let id = state.nextOptId;
             draft.nextOptId = state.nextOptId + 1;
@@ -308,9 +315,7 @@ function App(): React.ReactElement {
               expiry:
                 Object.values(state.options).length > 0
                   ? Object.values(state.options)[0].expiry
-                  : moment()
-                      .add(1, "day")
-                      .unix(),
+                  : 0,
               type: OptionType.Put,
               editing: true,
               hidden: false,
@@ -325,7 +330,6 @@ function App(): React.ReactElement {
             break;
           }
           case "modify-option": {
-            // console.log("modify", action)
             let option = draft.options.filter(
               opt => opt.id === action.payload.id
             )[0];
@@ -356,17 +360,27 @@ function App(): React.ReactElement {
     initialArg
   );
 
+  let updateOptionMeta = useCallback(() => {
+    yf.optionMeta(state.symbol).then(meta => {
+      console.log("Meta", meta)
+      setOptionMeta(meta)
+    })
+  }, [state.symbol])
+
   let optionData: OptionCache = useCallback(
-    (symbol: string, expiry: string) => {
+    (symbol: string, expiry: number) => {
       if (cache[symbol] == null) {
         cache[symbol] = {};
       }
       if (cache[symbol][expiry] == null) {
+        console.log("Fetching", expiry)
         return yf.options(symbol, expiry).then(res => {
           cache[symbol][expiry] = res;
           return res;
         });
       } else {
+        console.log("Cached", expiry)
+
         return Promise.resolve(cache[symbol][expiry]);
       }
     },
@@ -483,6 +497,7 @@ function App(): React.ReactElement {
                   price={state.price}
                   dispatch={dispatch}
                   state={state}
+                  updateOptionMeta={updateOptionMeta}
                 />
                 {state.options.map(option => {
                   if (option.editing) {
@@ -495,6 +510,7 @@ function App(): React.ReactElement {
                         option={option}
                         symbol={state.symbol}
                         optionData={optionData}
+                        optionMeta={optionMeta || undefined}
                       />
                     );
                   } else {

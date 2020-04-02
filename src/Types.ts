@@ -57,12 +57,18 @@ export type DisplayOption = {
   payload: { field: keyof DisplayOptions; value: any };
 };
 
+export type ClearOptions = {
+  type: "clear-options";
+  payload?: {};
+};
+
 export type Action =
   | AddOption
   | ModifyOption
   | ModifySymbol
   | RemoveOption
   | DisplayOption
+  | ClearOptions
   | SetState;
 
 export type Option = {
@@ -79,5 +85,5 @@ export type Option = {
 };
 
 export type OptionCache = {
-  (symbol: string, date: string): Promise<OptionChain>;
+  (symbol: string, date: number): Promise<OptionChain>;
 };

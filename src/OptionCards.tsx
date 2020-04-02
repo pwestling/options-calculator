@@ -13,6 +13,7 @@ import DeleteIcon from "@material-ui/icons/Delete";
 import VisibleIcon from "@material-ui/icons/Visibility";
 import InvisibleIcon from "@material-ui/icons/VisibilityOff";
 import Tooltip from "@material-ui/core/Tooltip";
+import Autocomplete from "@material-ui/lab/Autocomplete";
 import RadioGroup from "@material-ui/core/RadioGroup";
 import Radio from "@material-ui/core/Radio";
 import FormControlLabel from "@material-ui/core/FormControlLabel";
@@ -20,7 +21,7 @@ import FormControl from "@material-ui/core/FormControl";
 import FormHelperText from "@material-ui/core/FormHelperText";
 import { useStyles } from "./Styles";
 import { effectivePrice } from "./Helpers";
-import { ContractData } from "yahoo-finance-client-ts";
+import { ContractData, OptionMeta } from "yahoo-finance-client-ts";
 
 import { IconButton } from "@material-ui/core";
 
@@ -28,13 +29,15 @@ import { Option, Dispatch, OptionSale, OptionType, OptionCache } from "./Types";
 
 function getPrice(
   option: Option,
-  contract: ContractData | null
+  contract: ContractData | null | undefined
 ): number | undefined {
   if (contract) {
     let contractPrice =
       option.sale === OptionSale.Buy ? contract.ask : contract.bid;
     contractPrice =
-      contractPrice && contractPrice > 0 ? contractPrice : contract.lastPrice;
+      contractPrice && contractPrice > 0
+        ? contractPrice
+        : contract.lastPrice || 0.01;
     return contractPrice;
   } else {
     return undefined;
@@ -52,7 +55,6 @@ export function FixedOptionCard(props: {
     props.option.sale === OptionSale.Buy ? classes.debit : classes.credit;
 
   let mutedClass = props.option.hidden === true ? " " + classes.muted : "";
-  console.log(props.option);
   const expireDate = moment.unix(props.option.expiry).format("MM/DD");
   return (
     <Card raised={true}>
@@ -132,51 +134,67 @@ export function OptionCard(props: {
   iv: number;
   option: Option;
   optionData: OptionCache;
+  optionMeta?: OptionMeta;
 }): React.ReactElement {
   let { option, optionData, symbol, id, dispatch } = props;
-  let { strike, expiry } = option;
-  let [contract, setContract] = useState<ContractData | null>(null);
+  let { strike, expiry, type, sale, price: optPrice } = option;
+  let [contract, setContract] = useState<ContractData | null | undefined>(
+    undefined
+  );
   let [priceStr, setPriceStr] = useState(
     props.option.price > 0 ? props.option.price.toFixed(2) : ""
   );
   let [userSetPrice, setUserSetPrice] = useState(false);
 
-  console.log("render");
+  let [strikeStr, setStrikeStr] = useState(
+    props.option.strike > 0 ? props.option.strike.toString() : ""
+  );
+  let [expStr, setExpStr] = useState(
+    props.option.expiry > 0
+      ? moment
+          .unix(props.option.expiry)
+          .utc()
+          .format("MM/DD")
+      : ""
+  );
+  let [spreadString, setSpreadString] = useState("");
+
   useEffect(() => {
     console.log("effect", strike, expiry, symbol, id, dispatch);
-    optionData(symbol, moment.unix(option.expiry).format("YYYY/MM/DD")).then(
-      data => {
-        console.log(data);
-        if (data) {
-          let contract = data[option.type][option.strike];
-          console.log(option.type, option.strike);
-          console.log(contract);
-          if (contract) {
-            setContract(contract);
-            let contractPrice = getPrice(option, contract);
-            console.log("Prices", option.price, contractPrice);
-            if (option.price !== contractPrice && !userSetPrice) {
-              setPriceStr(contractPrice?.toFixed(2) || priceStr);
-              dispatch({
-                type: "modify-option",
-                payload: {
-                  id: id,
-                  field: "price",
-                  value: contractPrice
-                }
-              });
-              dispatch({
-                type: "modify-option",
-                payload: {
-                  id: id,
-                  field: "iv",
-                  value: contract.impliedVolatility
-                }
-              });
-            }
-          } else {
+    optionData(symbol, expiry).then(data => {
+      console.log("Data is", data);
+      if (data) {
+        let contract = data[type][strike];
+        if (contract) {
+          setContract(contract);
+          let contractPrice = getPrice(option, contract);
+          if(contract.bid && contract.ask){
+            setSpreadString(`$${contract.bid.toFixed(2)} - $${contract.ask.toFixed(2)}`)
+          }
+          if (optPrice !== contractPrice && !userSetPrice) {
+            setPriceStr(contractPrice?.toFixed(2) || priceStr);
+            dispatch({
+              type: "modify-option",
+              payload: {
+                id: id,
+                field: "price",
+                value: contractPrice
+              }
+            });
+            dispatch({
+              type: "modify-option",
+              payload: {
+                id: id,
+                field: "iv",
+                value: contract.impliedVolatility
+              }
+            });
+          }
+        } else {
+          console.log("Contract not found for", expiry, strike, type);
+          if (expiry > 0 && strike > 0) {
             setContract(null);
-            if (option.price !== contractPrice && !userSetPrice) {
+            if (optPrice !== contractPrice && !userSetPrice) {
               setPriceStr("");
               dispatch({
                 type: "modify-option",
@@ -197,13 +215,19 @@ export function OptionCard(props: {
             }
           }
         }
-        return 0;
       }
-    );
-  }, [strike, expiry, symbol, id, dispatch]);
+      return 0;
+    });
+  }, [strike, expiry, symbol, type, sale, id, dispatch]);
 
   let change = useCallback(
     (field: keyof Option, processor: (val: string) => any) => (event: any) => {
+      console.log(
+        "Change",
+        field,
+        event.target.value,
+        processor(event.target.value)
+      );
       props.dispatch({
         type: "modify-option",
         payload: {
@@ -218,21 +242,20 @@ export function OptionCard(props: {
 
   let parseDate: (val: string) => number = val => {
     try {
-      let entered = moment(val);
-      let now = moment();
+      let entered = moment(val).utc();
+      let now = moment().utc();
       if (entered.year() === 2001) {
         entered.year(now.year());
       }
       if (entered.isBefore(now)) {
         entered.add(1, "year");
       }
-      return entered.unix();
+      return entered.startOf("day").unix();
     } catch (e) {
       console.log("Could not parse " + val);
       return 0;
     }
   };
-  console.log("render2");
 
   let contractPrice = getPrice(option, contract);
 
@@ -241,27 +264,92 @@ export function OptionCard(props: {
       <CardContent>
         <Grid container spacing={3}>
           <Grid item xs={6} md={4}>
-            <TextField
-              variant="outlined"
+            <Autocomplete
+              freeSolo
+              blurOnSelect
               size="small"
-              label="Strike"
-              value={props.option.strike > 0 ? props.option.strike : ""}
-              onChange={change("strike", Number)}
+              id="combo-box-strike"
+              options={props.optionMeta ? props.optionMeta.strikes : []}
+              getOptionLabel={option => option.toString()}
+              inputValue={strikeStr}
+              onInputChange={(event: any, value: string, reason: string) => {
+                console.log("submitting strike", value, Number(value));
+                if (reason !== "reset" || value) {
+                  setStrikeStr(value);
+                  props.dispatch({
+                    type: "modify-option",
+                    payload: {
+                      id: props.id,
+                      field: "strike",
+                      value: Number(value)
+                    }
+                  });
+                }
+              }}
+              renderInput={params => (
+                <TextField {...params} label="Strike" variant="outlined" />
+              )}
             />
           </Grid>
           <Grid item xs={6} md={4}>
-            <TextField
-              error={props.option.strike > 0 && !contract}
-              helperText={
-                props.option.strike > 0 && !contract
-                  ? "No contracts for this date"
-                  : ""
-              }
-              variant="outlined"
+            <Autocomplete
+              freeSolo
+              blurOnSelect
               size="small"
-              defaultValue={moment.unix(props.option.expiry).format("MM/DD")}
-              label="Expiry"
-              onChange={change("expiry", parseDate)}
+              id="combo-box-expiry"
+              options={props.optionMeta ? props.optionMeta.expirations : []}
+              inputValue={expStr}
+              getOptionLabel={option => option.expirationString}
+              onInputChange={(event: any, value: any, reason: string) => {
+                console.log("Reason", reason);
+                console.log("submitting date", value);
+                if (reason !== "reset" || value) {
+                  setExpStr(value);
+                  let val = parseDate(value);
+                  if (props.optionMeta) {
+                    let selected = props.optionMeta.expirations.filter(
+                      e => e.expirationString === value
+                    );
+                    if (selected.length === 1) {
+                      console.log("submitting date", selected[0]);
+
+                      val = selected[0].expirationTimestamp;
+                    }
+                  }
+                  console.log("submitting date val", val);
+
+                  props.dispatch({
+                    type: "modify-option",
+                    payload: {
+                      id: props.id,
+                      field: "expiry",
+                      value: val
+                    }
+                  });
+                }
+              }}
+              renderInput={params => (
+                <TextField
+                  {...params}
+                  label="Expiry"
+                  error={
+                    contract === null &&
+                    props.option.strike > 0 &&
+                    props.option.expiry > 0
+                  }
+                  helperText={
+                    contract === null &&
+                    props.option.strike > 0 &&
+                    props.option.expiry > 0
+                      ? "Invalid expiration for this strike price"
+                      : ""
+                  }
+                  defaultValue={moment
+                    .unix(props.option.expiry)
+                    .format("MM/DD")}
+                  variant="outlined"
+                />
+              )}
             />
           </Grid>
           <Grid item xs={6} md={4}>
@@ -281,6 +369,7 @@ export function OptionCard(props: {
                 label="Price"
                 placeholder={contractPrice?.toFixed(2)}
                 value={priceStr}
+                helperText={spreadString ? spreadString : null}
                 onBlur={e => {
                   if (!userSetPrice && contractPrice) {
                     setPriceStr(contractPrice.toFixed(2));
