@@ -1,4 +1,4 @@
-import { OptionChain } from "yahoo-finance-client-ts";
+import { OptionChain, ContractData, OptionMeta, Expiration } from "yahoo-finance-client-ts";
 
 export interface OptionMap {
   [key: string]: Option;
@@ -19,10 +19,16 @@ export type DisplayOptions = {
   minPrice?: number;
 };
 
+export type Symbol = {
+  symbol : string;
+  name : string;
+  price : EditString<number>;
+  meta? : OptionMeta
+}
+
 export type State = {
   options: Option[];
-  symbol: string;
-  price: number;
+  symbol: Symbol;
   display: DisplayOptions;
   nextOptId: number;
   loaded: boolean;
@@ -39,7 +45,7 @@ export enum OptionType {
 }
 export type SetState = { type: "set-state"; payload: State };
 
-export type AddOption = { type: "add" };
+export type AddOption = { type: "add", payload?: Option };
 
 export type RemoveOption = { type: "remove"; payload: { id: number } };
 
@@ -47,9 +53,14 @@ export type ModifyOption = {
   type: "modify-option";
   payload: { id: number; field: keyof Option; value: any };
 };
+
+export type ModifyOptionExpirations = {
+  type: "modify-expirations";
+  payload: { value: string };
+};
 export type ModifySymbol = {
   type: "modify-symbol";
-  payload: { symbol?: string; price?: number; iv?: number };
+  payload: { symbol?: string; userPrice?: (string | null); actualPrice?: number, name? : string, lastParsedPrice?: number, meta? : OptionMeta};
 };
 
 export type DisplayOption = {
@@ -62,6 +73,14 @@ export type ClearOptions = {
   payload?: {};
 };
 
+export type EditString<T> = {
+  actual? : T;
+  user? : string;
+  lastParsed? : T;
+  error? : string
+  toUse : T
+}
+
 export type Action =
   | AddOption
   | ModifyOption
@@ -69,19 +88,21 @@ export type Action =
   | RemoveOption
   | DisplayOption
   | ClearOptions
-  | SetState;
+  | SetState
+  | ModifyOptionExpirations;
 
 export type Option = {
   id: number;
-  strike: number;
-  price: number;
+  strike: EditString<number>;
+  price: EditString<number>;
   iv: number;
-  quantity: number;
-  expiry: number;
+  quantity: EditString<number>;
+  expiry: EditString<Expiration>;
   type: OptionType;
   sale: OptionSale;
   editing: boolean;
   hidden: boolean;
+  contract?: ContractData
 };
 
 export type OptionCache = {

@@ -20,34 +20,22 @@ import FormControlLabel from "@material-ui/core/FormControlLabel";
 import FormControl from "@material-ui/core/FormControl";
 import FormHelperText from "@material-ui/core/FormHelperText";
 import { useStyles } from "./Styles";
-import { effectivePrice } from "./Helpers";
 import { ContractData, OptionMeta } from "yahoo-finance-client-ts";
 
 import { IconButton } from "@material-ui/core";
 
-import { Option, Dispatch, OptionSale, OptionType, OptionCache } from "./Types";
-
-function getPrice(
-  option: Option,
-  contract: ContractData | null | undefined
-): number | undefined {
-  if (contract) {
-    let contractPrice =
-      option.sale === OptionSale.Buy ? contract.ask : contract.bid;
-    contractPrice =
-      contractPrice && contractPrice > 0
-        ? contractPrice
-        : contract.lastPrice || 0.01;
-    return contractPrice;
-  } else {
-    return undefined;
-  }
-}
+import {
+  Option,
+  Dispatch,
+  OptionSale,
+  OptionType,
+  OptionCache,
+  Symbol,
+} from "./Types";
 
 export function FixedOptionCard(props: {
   dispatch: Dispatch;
-  id: number;
-  symbol: string;
+  symbol: Symbol;
   option: Option;
 }): React.ReactElement {
   const classes = useStyles();
@@ -55,7 +43,6 @@ export function FixedOptionCard(props: {
     props.option.sale === OptionSale.Buy ? classes.debit : classes.credit;
 
   let mutedClass = props.option.hidden === true ? " " + classes.muted : "";
-  const expireDate = moment.unix(props.option.expiry).format("MM/DD");
   return (
     <Card raised={true}>
       <CardContent style={{ paddingBottom: "1px" }}>
@@ -68,18 +55,18 @@ export function FixedOptionCard(props: {
             >
               {props.option.sale.toUpperCase()}
               {"  "}
-              {props.symbol.toUpperCase()} {expireDate} ${props.option.strike}{" "}
-              {props.option.type}
-              <br /> {props.option.quantity} @ $
-              {effectivePrice(props.option).toFixed(2)}
+              {props.symbol.symbol.toUpperCase()} {props.option.expiry.toUse.expirationString} $
+              {props.option.strike.toUse} {props.option.type}
+              <br /> {props.option.quantity.toUse} @ $
+              {props.option.price.toUse.toFixed(2)}
             </Typography>
           </Grid>
           <Grid item>
             <Typography className={saleClass + mutedClass} gutterBottom>
               $
               {(
-                effectivePrice(props.option) *
-                props.option.quantity *
+                props.option.price.toUse *
+                props.option.quantity.toUse *
                 100
               ).toFixed(2)}
             </Typography>
@@ -92,7 +79,7 @@ export function FixedOptionCard(props: {
           onClick={() =>
             props.dispatch({
               type: "modify-option",
-              payload: { id: props.id, field: "editing", value: true }
+              payload: { id: props.option.id, field: "editing", value: true },
             })
           }
         >
@@ -101,7 +88,7 @@ export function FixedOptionCard(props: {
         <IconButton
           size="small"
           onClick={() =>
-            props.dispatch({ type: "remove", payload: { id: props.id } })
+            props.dispatch({ type: "remove", payload: { id: props.option.id } })
           }
         >
           <DeleteIcon />
@@ -112,10 +99,10 @@ export function FixedOptionCard(props: {
             props.dispatch({
               type: "modify-option",
               payload: {
-                id: props.id,
+                id: props.option.id,
                 field: "hidden",
-                value: !props.option.hidden
-              }
+                value: !props.option.hidden,
+              },
             })
           }
         >
@@ -128,136 +115,18 @@ export function FixedOptionCard(props: {
 
 export function OptionCard(props: {
   dispatch: Dispatch;
-  id: number;
-  symbol: string;
-  currentPrice: number;
-  iv: number;
+  symbol: Symbol;
   option: Option;
-  optionData: OptionCache;
-  optionMeta?: OptionMeta;
 }): React.ReactElement {
-  let { option, optionData, symbol, id, dispatch } = props;
-  let { strike, expiry, type, sale, price: optPrice } = option;
-  let [contract, setContract] = useState<ContractData | null | undefined>(
-    undefined
-  );
-  let [priceStr, setPriceStr] = useState(
-    props.option.price > 0 ? props.option.price.toFixed(2) : ""
-  );
-  let [userSetPrice, setUserSetPrice] = useState(false);
-
-  let [strikeStr, setStrikeStr] = useState(
-    props.option.strike > 0 ? props.option.strike.toString() : ""
-  );
-  let [expStr, setExpStr] = useState(
-    props.option.expiry > 0
-      ? moment
-          .unix(props.option.expiry)
-          .utc()
-          .format("MM/DD")
-      : ""
-  );
-  let [spreadString, setSpreadString] = useState("");
-
-  useEffect(() => {
-    console.log("effect", strike, expiry, symbol, id, dispatch);
-    optionData(symbol, expiry).then(data => {
-      console.log("Data is", data);
-      if (data) {
-        let contract = data[type][strike];
-        if (contract) {
-          setContract(contract);
-          let contractPrice = getPrice(option, contract);
-          if(contract.bid && contract.ask){
-            setSpreadString(`$${contract.bid.toFixed(2)} - $${contract.ask.toFixed(2)}`)
-          }
-          if (optPrice !== contractPrice && !userSetPrice) {
-            setPriceStr(contractPrice?.toFixed(2) || priceStr);
-            dispatch({
-              type: "modify-option",
-              payload: {
-                id: id,
-                field: "price",
-                value: contractPrice
-              }
-            });
-            dispatch({
-              type: "modify-option",
-              payload: {
-                id: id,
-                field: "iv",
-                value: contract.impliedVolatility
-              }
-            });
-          }
-        } else {
-          console.log("Contract not found for", expiry, strike, type);
-          if (expiry > 0 && strike > 0) {
-            setContract(null);
-            if (optPrice !== contractPrice && !userSetPrice) {
-              setPriceStr("");
-              dispatch({
-                type: "modify-option",
-                payload: {
-                  id: id,
-                  field: "price",
-                  value: 0
-                }
-              });
-              dispatch({
-                type: "modify-option",
-                payload: {
-                  id: id,
-                  field: "iv",
-                  value: 0
-                }
-              });
-            }
-          }
-        }
-      }
-      return 0;
-    });
-  }, [strike, expiry, symbol, type, sale, id, dispatch]);
-
-  let change = useCallback(
-    (field: keyof Option, processor: (val: string) => any) => (event: any) => {
-      console.log(
-        "Change",
-        field,
-        event.target.value,
-        processor(event.target.value)
-      );
-      props.dispatch({
-        type: "modify-option",
-        payload: {
-          id: props.id,
-          field: field,
-          value: processor(event.target.value)
-        }
-      });
-    },
-    [props]
-  );
-
-  let parseDate: (val: string) => number = val => {
-    try {
-      let entered = moment(val).utc();
-      let now = moment().utc();
-      if (entered.year() === 2001) {
-        entered.year(now.year());
-      }
-      if (entered.isBefore(now)) {
-        entered.add(1, "year");
-      }
-      return entered.startOf("day").unix();
-    } catch (e) {
-      console.log("Could not parse " + val);
-      return 0;
-    }
-  };
-
-  let contractPrice = getPrice(option, contract);
+  let { option, symbol, dispatch } = props;
+  let spreadString = null;
+  if (
+    props.option.contract &&
+    props.option.contract?.bid &&
+    props.option.contract?.ask
+  ) {
+    spreadString = `$${props.option.contract.bid} - $${props.option.contract.ask}`;
+  }
 
   return (
     <Card style={{ marginBottom: "1em" }} raised={true}>
@@ -269,24 +138,22 @@ export function OptionCard(props: {
               blurOnSelect
               size="small"
               id="combo-box-strike"
-              options={props.optionMeta ? props.optionMeta.strikes : []}
-              getOptionLabel={option => option.toString()}
-              inputValue={strikeStr}
+              options={props.symbol.meta ? props.symbol.meta.strikes : []}
+              getOptionLabel={(option) => option.toString()}
+              inputValue={props.option.strike.user || ""}
               onInputChange={(event: any, value: string, reason: string) => {
-                console.log("submitting strike", value, Number(value));
                 if (reason !== "reset" || value) {
-                  setStrikeStr(value);
                   props.dispatch({
                     type: "modify-option",
                     payload: {
-                      id: props.id,
+                      id: props.option.id,
                       field: "strike",
-                      value: Number(value)
-                    }
+                      value: value,
+                    },
                   });
                 }
               }}
-              renderInput={params => (
+              renderInput={(params) => (
                 <TextField {...params} label="Strike" variant="outlined" />
               )}
             />
@@ -297,56 +164,35 @@ export function OptionCard(props: {
               blurOnSelect
               size="small"
               id="combo-box-expiry"
-              options={props.optionMeta ? props.optionMeta.expirations : []}
-              inputValue={expStr}
-              getOptionLabel={option => option.expirationString}
+              options={props.symbol.meta ? props.symbol.meta.expirations : []}
+              inputValue={props.option.expiry.user}
+              getOptionLabel={(option) => {
+                if (typeof option === "string") {
+                  return option;
+                } else {
+                  return option.expirationString;
+                }
+              }}
               onInputChange={(event: any, value: any, reason: string) => {
-                console.log("Reason", reason);
-                console.log("submitting date", value);
-                if (reason !== "reset" || value) {
-                  setExpStr(value);
-                  let val = parseDate(value);
-                  if (props.optionMeta) {
-                    let selected = props.optionMeta.expirations.filter(
-                      e => e.expirationString === value
-                    );
-                    if (selected.length === 1) {
-                      console.log("submitting date", selected[0]);
+                console.log("Change", value, reason);
 
-                      val = selected[0].expirationTimestamp;
-                    }
-                  }
-                  console.log("submitting date val", val);
-
+                if (value) {
                   props.dispatch({
                     type: "modify-option",
                     payload: {
-                      id: props.id,
+                      id: props.option.id,
                       field: "expiry",
-                      value: val
-                    }
+                      value: value,
+                    },
                   });
                 }
               }}
-              renderInput={params => (
+              renderInput={(params) => (
                 <TextField
                   {...params}
                   label="Expiry"
-                  error={
-                    contract === null &&
-                    props.option.strike > 0 &&
-                    props.option.expiry > 0
-                  }
-                  helperText={
-                    contract === null &&
-                    props.option.strike > 0 &&
-                    props.option.expiry > 0
-                      ? "Invalid expiration for this strike price"
-                      : ""
-                  }
-                  defaultValue={moment
-                    .unix(props.option.expiry)
-                    .format("MM/DD")}
+                  error={!!props.option.expiry.error}
+                  helperText={props.option.expiry.error}
                   variant="outlined"
                 />
               )}
@@ -355,44 +201,39 @@ export function OptionCard(props: {
           <Grid item xs={6} md={4}>
             <FormControl>
               <TextField
-                onChange={e => {
-                  setPriceStr(e.target.value);
-                  if (e.target.value && e.target.value !== "") {
-                    setUserSetPrice(true);
-                  } else {
-                    setUserSetPrice(false);
-                  }
-                  change("price", Number)(e);
+                onChange={(e) => {
+                  props.dispatch({
+                    type: "modify-option",
+                    payload: {
+                      id: props.option.id,
+                      field: "price",
+                      value: e.target.value,
+                    },
+                  });
                 }}
                 variant="outlined"
                 size="small"
                 label="Price"
-                placeholder={contractPrice?.toFixed(2)}
-                value={priceStr}
+                placeholder={props.option.price.actual?.toFixed(2)}
+                value={
+                  props.option.price.user !== undefined
+                    ? props.option.price.user
+                    : props.option.price.actual?.toFixed(2) || 0
+                }
                 helperText={spreadString ? spreadString : null}
-                onBlur={e => {
-                  if (!userSetPrice && contractPrice) {
-                    setPriceStr(contractPrice.toFixed(2));
+                onBlur={(e) => {
+                  if (!e.target.value) {
                     props.dispatch({
                       type: "modify-option",
                       payload: {
-                        id: props.id,
+                        id: props.option.id,
                         field: "price",
-                        value: contractPrice
-                      }
+                        value: null,
+                      },
                     });
                   }
                 }}
               />
-              {/* <Tooltip
-                title={`The Black-Scholes equation indicates this option should cost $${(
-                  props.option.blackScholesPrice || 0
-                ).toFixed(2)}  based on the IV and current price`}
-              >
-                <FormHelperText>{`BS: ${(
-                  props.option.blackScholesPrice || 0
-                ).toFixed(2)}`}</FormHelperText>
-              </Tooltip> */}
             </FormControl>
           </Grid>
           <Grid item xs={6} md={4}>
@@ -400,15 +241,33 @@ export function OptionCard(props: {
               variant="outlined"
               size="small"
               label="Quantity"
-              value={props.option.quantity}
-              onChange={change("quantity", Number)}
+              value={props.option.quantity.user}
+              onChange={(event) => {
+                props.dispatch({
+                  type: "modify-option",
+                  payload: {
+                    id: props.option.id,
+                    field: "quantity",
+                    value: event.target.value,
+                  },
+                });
+              }}
             />
           </Grid>
           <Grid item xs={6} md={4}>
             <RadioGroup
               name="putCall"
               value={props.option.type}
-              onChange={change("type", x => x)}
+              onChange={(event) => {
+                props.dispatch({
+                  type: "modify-option",
+                  payload: {
+                    id: props.option.id,
+                    field: "type",
+                    value: event.target.value,
+                  },
+                });
+              }}
             >
               <FormControlLabel
                 value={OptionType.Put}
@@ -426,7 +285,16 @@ export function OptionCard(props: {
             <RadioGroup
               name="buySell"
               value={props.option.sale}
-              onChange={change("sale", x => x)}
+              onChange={(event) => {
+                props.dispatch({
+                  type: "modify-option",
+                  payload: {
+                    id: props.option.id,
+                    field: "sale",
+                    value: event.target.value,
+                  },
+                });
+              }}
             >
               <FormControlLabel
                 value={OptionSale.Buy}
@@ -444,14 +312,14 @@ export function OptionCard(props: {
             <Fab
               size="small"
               color="secondary"
-              onClick={e => {
+              onClick={(e) => {
                 props.dispatch({
                   type: "modify-option",
                   payload: {
-                    id: props.id,
+                    id: props.option.id,
                     field: "editing",
-                    value: false
-                  }
+                    value: false,
+                  },
                 });
               }}
             >

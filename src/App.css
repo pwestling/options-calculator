@@ -28,6 +28,18 @@
   color: #61dafb;
 }
 
+.rotated-slider-label {
+  transform: scale(1) translateY(8px) translateX(15px) rotate(90deg) !important;
+}
+
+.rotated-slider-label > span > span {
+  transform: rotate(315deg) !important;
+}
+
+.invisible-mark {
+  display: none !important;
+}
+
 
 @keyframes App-logo-spin {
   from {

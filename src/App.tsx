@@ -3,7 +3,8 @@ import React, {
   useCallback,
   useEffect,
   useReducer,
-  useMemo
+  useMemo,
+  useRef,
 } from "react";
 import { useDebounce } from "react-use";
 import Grid from "@material-ui/core/Grid";
@@ -32,13 +33,17 @@ import msgpack from "notepack";
 import FormControl from "@material-ui/core/FormControl";
 import base64url from "base64url";
 import { useStyles } from "./Styles";
-import ByteBuffer from "byte-buffer";
-import axios from "axios";
 import YahooFinance from "yahoo-finance-client-ts";
 import { OptionChain, OptionMeta } from "yahoo-finance-client-ts";
 
+import {
+  reducer,
+  initialState,
+  storeState,
+  retrieveState,
+  symbolPrice,
+} from "./State";
 import { v4 as uuidv4 } from "uuid";
-import produce from "immer";
 import "bootstrap/dist/css/bootstrap.css";
 
 import "./App.css";
@@ -56,70 +61,19 @@ import {
   OptionSale,
   OptionType,
   RemoveOption,
-  OptionCache
+  OptionCache,
+  Symbol,
 } from "./Types";
 import { OptionCard, FixedOptionCard } from "./OptionCards";
-import { effectivePrice } from "./Helpers";
+// import { StrategyCard } from "./Strategies";
 
 const INTEREST_RATE = 0.0;
-const yf = window.location.host.includes("localhost")
-  ? new YahooFinance("https://query1.finance.yahoo.com/v7/finance")
-  : new YahooFinance(
-      `${window.location.protocol}//${window.location.host}/finance`
-    );
 
 function SymbolCard(props: {
   dispatch: Dispatch;
   className?: any;
-  symbol: string;
-  price: number;
-  state: State;
-  updateOptionMeta: () => void;
+  symbol: Symbol;
 }): React.ReactElement {
-  let [pricePlaceholder, setPricePlaceholder] = useState("");
-  let [priceString, setPriceString] = useState(
-    props.price > 0 ? props.price.toString() : ""
-  );
-  let [symbolHelperText, setSymbolHelperText] = useState("");
-  let [userEditedPrice, setUserEditedPrice] = useState(false);
-
-  let querySymbol = (symbol: string) => {
-    if (symbol) {
-      yf.quote(symbol).then(quote => {
-        if (quote) {
-          if (!userEditedPrice) {
-            let price =
-              quote.bid || quote.postMarketPrice || quote.regularMarketPrice;
-            props.dispatch({
-              type: "modify-symbol",
-              payload: { price: price }
-            });
-
-            setPricePlaceholder(price?.toFixed(2) || "");
-            setPriceString(price?.toFixed(2) || "");
-          }
-          if (quote.shortName) {
-            setSymbolHelperText(quote.shortName);
-          } else if (quote.longName) {
-            setSymbolHelperText(quote.longName);
-          }
-        }
-      });
-    }
-  };
-  useEffect(() => {
-    if (props.symbol && props.symbol.length > 0) {
-      querySymbol(props.symbol);
-    }
-  }, []);
-  let updateSymbol = (e: React.ChangeEvent<HTMLInputElement>) => {
-    props.dispatch({
-      type: "modify-symbol",
-      payload: { symbol: e.target.value || "" }
-    });
-    querySymbol(e.target.value);
-  };
-
   return (
     <Card className={props.className} raised>
       <CardContent>
@@ -136,10 +90,14 @@ function SymbolCard(props: {
               size="small"
               label="Symbol"
               margin="none"
-              helperText={symbolHelperText}
-              value={props.symbol}
-              onChange={updateSymbol}
-              onBlur={props.updateOptionMeta}
+              helperText={props.symbol.name}
+              value={props.symbol.symbol}
+              onChange={(e: any) =>
+                props.dispatch({
+                  type: "modify-symbol",
+                  payload: { symbol: e?.target?.value || "" },
+                })
+              }
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -148,21 +106,26 @@ function SymbolCard(props: {
                 variant="outlined"
                 size="small"
                 label="Stock Price"
-                placeholder={pricePlaceholder}
+                placeholder={props.symbol.price.actual?.toFixed(2)}
                 margin="none"
-                value={priceString}
-                onChange={e => {
-                  setUserEditedPrice(true);
-                  setPriceString(e.target.value);
-                  try {
+                error={!!props.symbol.price.error}
+                helperText={props.symbol.price.error}
+                value={
+                  props.symbol.price.user !== undefined
+                    ? props.symbol.price.user
+                    : props.symbol.price.actual
+                }
+                onChange={(e) => {
+                  props.dispatch({
+                    type: "modify-symbol",
+                    payload: { userPrice: e.target.value },
+                  });
+                }}
+                onBlur={(e: any) => {
+                  if (!e.target.value) {
                     props.dispatch({
                       type: "modify-symbol",
-                      payload: { price: Number(e.target.value) }
-                    });
-                  } catch (e) {
-                    props.dispatch({
-                      type: "modify-symbol",
-                      payload: { price: 0 }
+                      payload: { userPrice: null },
                     });
                   }
                 }}
@@ -178,7 +141,7 @@ function SymbolCard(props: {
 function GridColumn(props: { children: React.ReactNode }): React.ReactElement {
   return (
     <>
-      {React.Children.map(props.children, child => (
+      {React.Children.map(props.children, (child) => (
         <Grid item> {child} </Grid>
       ))}
     </>
@@ -214,43 +177,6 @@ function gradient(maxRisk: number, maxProfit: number, profit: number): string {
   return `rgba(${red},${green}, 0, ${alpha})`;
 }
 
-function adjustBSPrice(state: State, option: Option) {
-  // let yearsToExpiry =
-  //   moment.duration(moment.unix(option.expiry).diff(moment())).asDays() / 360.0;
-  // option.blackScholesPrice =
-  //   Math.round(
-  //     bs.blackScholes(
-  //       state.price,
-  //       option.strike,
-  //       yearsToExpiry,
-  //       state.iv,
-  //       INTEREST_RATE,
-  //       option.type
-  //     ) * 100
-  //   ) / 100;
-}
-
-const boxUrl = "https://jsonbox.io/box_5fa832a14b0bc099f9e0";
-
-function storeState(state: State): Promise<String> {
-  return axios.post(boxUrl, state).then(
-    res => res.data._id,
-    err => {
-      console.log("Error creating permalink", err);
-      return "";
-    }
-  );
-}
-
-function retrieveState(id: string): Promise<State | null> {
-  return axios.get(boxUrl + "/" + id).then(
-    res => res.data as State,
-    err => {
-      console.log("Error retrieving state", err);
-      return null;
-    }
-  );
-}
 const cache = {} as any;
 
 function App(): React.ReactElement {
@@ -261,7 +187,7 @@ function App(): React.ReactElement {
   useEffect(() => {
     if (urlParams.has("code")) {
       try {
-        retrieveState(urlParams.get("code") as string).then(result => {
+        retrieveState(urlParams.get("code") as string).then((result) => {
           if (result !== null) {
             dispatch({ type: "set-state", payload: result });
           }
@@ -273,124 +199,20 @@ function App(): React.ReactElement {
   }, []);
 
   let [permalink, setPermalink] = useState("");
-  let [optionMeta, setOptionMeta] = useState<OptionMeta | null>(null);
-
 
   const initialArg: State = useMemo(() => {
-    return {
-      options: [] as Option[],
-      price: -1,
-      iv: -1,
-      symbol: "",
-      display: { profit: ProfitDisplay.PercentRisk },
-      nextOptId: 0,
-      loaded: !urlParams.has("code")
-    };
+    return initialState(urlParams);
   }, []);
 
-  const [state, dispatch] = useReducer(
-    (state: State, action: Action): State => {
-      let newstate = produce(state, draft => {
-        switch (action.type) {
-          case "set-state": {
-            console.log("setting state to", action.payload);
-            return action.payload;
-          }
-          case "clear-options": {
-            draft.options = []
-            break;
-          }
-          case "add": {
-            let id = state.nextOptId;
-            draft.nextOptId = state.nextOptId + 1;
-            draft.options.push({
-              id: id,
-              strike: -1,
-              price: 0,
-              iv: 0,
-              quantity:
-                Object.values(state.options).length > 0
-                  ? Object.values(state.options)[0].quantity
-                  : 1,
-              expiry:
-                Object.values(state.options).length > 0
-                  ? Object.values(state.options)[0].expiry
-                  : 0,
-              type: OptionType.Put,
-              editing: true,
-              hidden: false,
-              sale: OptionSale.Buy
-            });
-            break;
-          }
-          case "remove": {
-            draft.options = draft.options.filter(
-              opt => opt.id !== action.payload.id
-            );
-            break;
-          }
-          case "modify-option": {
-            let option = draft.options.filter(
-              opt => opt.id === action.payload.id
-            )[0];
-            (option[action.payload.field] as any) = action.payload.value;
-            adjustBSPrice(draft, option);
-            break;
-          }
-          case "modify-symbol": {
-            draft.symbol =
-              action.payload.symbol != null
-                ? action.payload.symbol
-                : draft.symbol;
-            draft.price =
-              action.payload.price != null ? action.payload.price : draft.price;
-            Object.values(draft.options).forEach(opt =>
-              adjustBSPrice(draft, opt)
-            );
-            break;
-          }
-          case "display": {
-            (draft.display[action.payload.field] as any) = action.payload.value;
-            break;
-          }
-        }
-      });
-      return newstate;
-    },
-    initialArg
-  );
+  let dispatchRef = useRef<Dispatch>();
 
-  let updateOptionMeta = useCallback(() => {
-    yf.optionMeta(state.symbol).then(meta => {
-      console.log("Meta", meta)
-      setOptionMeta(meta)
-    })
-  }, [state.symbol])
+  const [state, dispatch] = useReducer(reducer(dispatchRef), initialArg);
+  dispatchRef.current = dispatch;
 
-  let optionData: OptionCache = useCallback(
-    (symbol: string, expiry: number) => {
-      if (cache[symbol] == null) {
-        cache[symbol] = {};
-      }
-      if (cache[symbol][expiry] == null) {
-        console.log("Fetching", expiry)
-        return yf.options(symbol, expiry).then(res => {
-          cache[symbol][expiry] = res;
-          return res;
-        });
-      } else {
-        console.log("Cached", expiry)
-
-        return Promise.resolve(cache[symbol][expiry]);
-      }
-    },
-    []
-  );
-
-  let strikes = Object.values(state.options).map(o => o.strike);
+  let strikes = Object.values(state.options).map((o) => o.strike.toUse).concat([state.symbol.price.toUse]);
   let lastExpiry = moment.unix(
     Object.values(state.options)
-      .map(o => o.expiry)
+      .map((o) => o.expiry.toUse.expirationTimestamp)
       .reduce((a, b) => Math.max(a, b), 0)
   );
 
@@ -417,18 +239,18 @@ function App(): React.ReactElement {
   let maxRisk = 0;
   let maxProfit = -99999;
   let calcs: NumMap<NumMap<any>> = {};
-  predictedPriceRange.forEach(predictedPrice => {
+  predictedPriceRange.forEach((predictedPrice) => {
     calcs[predictedPrice] = {};
-    dateRange.forEach(daysFromNow => {
+    dateRange.forEach((daysFromNow) => {
       calcs[predictedPrice][daysFromNow] = { price: 0, profit: 0 };
       Object.values(state.options)
-        .filter(o => !o.hidden)
-        .forEach(option => {
+        .filter((o) => !o.hidden)
+        .forEach((option) => {
           let yearsToExpiry =
             moment
               .duration(
                 moment
-                  .unix(option.expiry)
+                  .unix(option.expiry.toUse.expirationTimestamp)
                   .diff(moment().add(daysFromNow, "days"))
               )
               .asDays() / 360.0;
@@ -437,25 +259,30 @@ function App(): React.ReactElement {
           if (yearsToExpiry > 0) {
             optionProjectedPrice = bs.blackScholes(
               predictedPrice,
-              option.strike,
+              option.strike.toUse,
               yearsToExpiry,
               option.iv,
               INTEREST_RATE,
               option.type
             );
           } else if (option.type === OptionType.Call) {
-            optionProjectedPrice = Math.max(0, predictedPrice - option.strike);
+            optionProjectedPrice = Math.max(
+              0,
+              predictedPrice - option.strike.toUse
+            );
           } else if (option.type === OptionType.Put) {
-            optionProjectedPrice = Math.max(0, option.strike - predictedPrice);
+            optionProjectedPrice = Math.max(
+              0,
+              option.strike.toUse - predictedPrice
+            );
           }
           if (isNaN(optionProjectedPrice)) {
             optionProjectedPrice = 0;
           }
           calcs[predictedPrice][daysFromNow]["profit"] +=
-            (optionProjectedPrice * modifier +
-              effectivePrice(option) * -modifier) *
+            (optionProjectedPrice * modifier + option.price.toUse * -modifier) *
             100 *
-            option.quantity;
+            option.quantity.toUse;
           calcs[predictedPrice][daysFromNow]["price"] +=
             optionProjectedPrice * modifier;
         });
@@ -468,11 +295,11 @@ function App(): React.ReactElement {
   });
 
   let entryCost = Object.values(state.options)
-    .filter(o => !o.hidden)
+    .filter((o) => !o.hidden)
     .map(
-      o =>
-        effectivePrice(o) *
-        o.quantity *
+      (o) =>
+        o.price.toUse *
+        o.quantity.toUse *
         100 *
         (o.sale === OptionSale.Buy ? -1 : 1)
     )
@@ -494,29 +321,20 @@ function App(): React.ReactElement {
                 <SymbolCard
                   className={classes.marginBot4}
                   symbol={state.symbol}
-                  price={state.price}
                   dispatch={dispatch}
-                  state={state}
-                  updateOptionMeta={updateOptionMeta}
                 />
-                {state.options.map(option => {
+                {state.options.map((option) => {
                   if (option.editing) {
                     return (
                       <OptionCard
-                        id={option.id}
-                        iv={option.iv}
-                        currentPrice={state.price}
                         dispatch={dispatch}
                         option={option}
                         symbol={state.symbol}
-                        optionData={optionData}
-                        optionMeta={optionMeta || undefined}
                       />
                     );
                   } else {
                     return (
                       <FixedOptionCard
-                        id={option.id}
                         dispatch={dispatch}
                         option={option}
                         symbol={state.symbol}
@@ -524,8 +342,19 @@ function App(): React.ReactElement {
                     );
                   }
                 })}
+                {/* <StrategyCard
+                  dispatch={dispatch}
+                  symbol={state.symbol}
+                  optionData={optionData}
+                  options={state.options}
+                  price={state.price}
+                  optionMeta={optionMeta || undefined}
+                /> */}
                 <Tooltip title="Add Option">
-                  <Fab color="primary" onClick={e => dispatch({ type: "add" })}>
+                  <Fab
+                    color="primary"
+                    onClick={(e) => dispatch({ type: "add" })}
+                  >
                     <AddIcon />
                   </Fab>
                 </Tooltip>
@@ -568,23 +397,22 @@ function App(): React.ReactElement {
                         <TableCell className={classes.headerCell}>
                           Price
                         </TableCell>
-                        {dateRange.map(d => (
+                        {dateRange.map((d) => (
                           <TableCell key={d} className={classes.headerCell}>
-                            {moment()
-                              .add(d, "days")
-                              .format("MM/DD")}
+                            {moment().add(d, "days").format("MM/DD")}
                           </TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {predictedPriceRange.map(price => {
+                      {predictedPriceRange.map((price) => {
                         return (
                           <TableRow>
                             <Tooltip
                               enterDelay={300}
                               title={`${(
-                                ((price - state.price) / state.price) *
+                                ((price - symbolPrice(state.symbol)) /
+                                  symbolPrice(state.symbol)) *
                                 100
                               ).toFixed(0)}%`}
                             >
@@ -592,7 +420,7 @@ function App(): React.ReactElement {
                                 ${price}
                               </TableCell>
                             </Tooltip>
-                            {dateRange.map(date => {
+                            {dateRange.map((date) => {
                               return (
                                 // <Tooltip
                                 //   enterDelay={3000}
@@ -625,7 +453,7 @@ function App(): React.ReactElement {
                                       maxRisk,
                                       maxProfit,
                                       calcs[price][date]["profit"]
-                                    )
+                                    ),
                                   }}
                                   className={classes.smallCell}
                                 >
@@ -664,10 +492,10 @@ function App(): React.ReactElement {
                     size="small"
                     label="Display"
                     value={state.display.profit}
-                    onChange={e =>
+                    onChange={(e) =>
                       dispatch({
                         type: "display",
-                        payload: { field: "profit", value: e.target.value }
+                        payload: { field: "profit", value: e.target.value },
                       })
                     }
                   >
@@ -685,13 +513,13 @@ function App(): React.ReactElement {
                     size="small"
                     defaultValue={state.display.minPrice}
                     label="Min Price"
-                    onChange={e =>
+                    onChange={(e) =>
                       dispatch({
                         type: "display",
                         payload: {
                           field: "minPrice",
-                          value: Number(e.target.value)
-                        }
+                          value: Number(e.target.value),
+                        },
                       })
                     }
                   ></TextField>
@@ -702,13 +530,13 @@ function App(): React.ReactElement {
                     size="small"
                     defaultValue={state.display.maxPrice}
                     label="Max Price"
-                    onChange={e =>
+                    onChange={(e) =>
                       dispatch({
                         type: "display",
                         payload: {
                           field: "maxPrice",
-                          value: Number(e.target.value)
-                        }
+                          value: Number(e.target.value),
+                        },
                       })
                     }
                   ></TextField>
@@ -718,7 +546,7 @@ function App(): React.ReactElement {
                     <Button
                       variant="outlined"
                       onClick={() => {
-                        storeState(state).then(result => {
+                        storeState(state).then((result) => {
                           setPermalink(
                             `${window.location.protocol}/${window.location.host}?code=${result}`
                           );
