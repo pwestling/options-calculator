@@ -112,9 +112,11 @@ function updateDataCache(symbol: string): Promise<void> {
   let loadDataCache = yf.optionMeta(symbol).then((meta) => {
     dataCache.meta = meta;
     meta.expirations.forEach((exp) => {
-      yf.options(symbol, exp.expirationTimestamp).then((chain) => {
-        dataCache[exp.expirationTimestamp] = chain;
-      });
+      if(exp){
+        yf.options(symbol, exp.expirationTimestamp).then((chain) => {
+          dataCache[exp.expirationTimestamp] = chain;
+        });
+      }
     });
   });
 
@@ -133,6 +135,12 @@ function d(dispatch: MutableRefObject<Dispatch | undefined>, action: Action) {
 }
 
 function updateOption(symbol: Symbol, option: Option) {
+  if(option.price.user){
+    let parsed = Number(option.strike.user);
+    if(parsed && !isNaN(parsed)){
+      option.price.lastParsed = parsed
+    }
+  }
   if (option.expiry.user) {
     let validExpiry = dataCache.meta.expirations.find(
       (e) => e.expirationString === option.expiry.user
@@ -142,6 +150,7 @@ function updateOption(symbol: Symbol, option: Option) {
       option.expiry.toUse = option.expiry.lastParsed;
       option.expiry.error = undefined;
     } else {
+      option.expiry.toUse = {expirationString: "0-0-0", expirationTimestamp: 0}
       option.expiry.error = "Invalid expiration date for this option";
     }
   }
@@ -166,7 +175,7 @@ function updateOption(symbol: Symbol, option: Option) {
       dataCache[option.expiry.lastParsed.expirationTimestamp][option.type][
         option.strike.lastParsed
       ];
-    option.iv = contract?.impliedVolatility || 0;
+    option.iv = contract?.impliedVolatility || 0.66;
     option.price.actual = getPrice(
       { strike: option.strike.lastParsed, sale: option.sale },
       contract

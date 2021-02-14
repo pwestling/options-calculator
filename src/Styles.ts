@@ -43,5 +43,12 @@ export const useStyles = makeStyles({
   },
   marginBot4: {
     marginBottom: "2em"
+  },
+  tabLink:{
+      '&:hover': {
+        color: "#FFFFFF",
+        backgroundColor: "#173b67",
+        textDecoration: "none"
+     }
   }
 });

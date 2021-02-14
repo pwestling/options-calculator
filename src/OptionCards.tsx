@@ -221,18 +221,18 @@ export function OptionCard(props: {
                     : props.option.price.actual?.toFixed(2) || 0
                 }
                 helperText={spreadString ? spreadString : null}
-                onBlur={(e) => {
-                  if (!e.target.value) {
-                    props.dispatch({
-                      type: "modify-option",
-                      payload: {
-                        id: props.option.id,
-                        field: "price",
-                        value: null,
-                      },
-                    });
-                  }
-                }}
+                // onBlur={(e) => {
+                //   if (!e.target.value) {
+                //     props.dispatch({
+                //       type: "modify-option",
+                //       payload: {
+                //         id: props.option.id,
+                //         field: "price",
+                //         value: null,
+                //       },
+                //     });
+                //   }
+                // }}
               />
             </FormControl>
           </Grid>

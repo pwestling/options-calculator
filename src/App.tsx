@@ -7,6 +7,7 @@ import React, {
   useRef,
 } from "react";
 import { useDebounce } from "react-use";
+import { Link, Switch, Route, BrowserRouter } from "react-router-dom";
 import Grid from "@material-ui/core/Grid";
 import Card from "@material-ui/core/Card";
 import CardContent from "@material-ui/core/CardContent";
@@ -29,6 +30,11 @@ import TableHead from "@material-ui/core/TableHead";
 import TableRow from "@material-ui/core/TableRow";
 import Paper from "@material-ui/core/Paper";
 import Tooltip from "@material-ui/core/Tooltip";
+import AppBar from '@material-ui/core/AppBar';
+import Tabs from '@material-ui/core/Tabs';
+import Tab from '@material-ui/core/Tab';
+import Box from '@material-ui/core/Box'
+
 import msgpack from "notepack";
 import FormControl from "@material-ui/core/FormControl";
 import base64url from "base64url";
@@ -65,6 +71,8 @@ import {
   Symbol,
 } from "./Types";
 import { OptionCard, FixedOptionCard } from "./OptionCards";
+import { ThetaPage } from "./Theta";
+
 // import { StrategyCard } from "./Strategies";
 
 const INTEREST_RATE = 0.0;
@@ -148,6 +156,25 @@ function GridColumn(props: { children: React.ReactNode }): React.ReactElement {
   );
 }
 
+function TabPanel(props: any) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      id={`wrapped-tabpanel-${index}`}
+      aria-labelledby={`wrapped-tab-${index}`}
+      {...other}
+    >
+      {(
+        <Box>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
+
 interface NumMap<V> {
   [index: number]: V;
 }
@@ -200,6 +227,12 @@ function App(): React.ReactElement {
 
   let [permalink, setPermalink] = useState("");
 
+  const [selectedTab, setSelectedTab] = React.useState('thetacalc');
+
+  const handleChange = (event: any, newValue: string) => {
+    setSelectedTab(newValue);
+  };
+
   const initialArg: State = useMemo(() => {
     return initialState(urlParams);
   }, []);
@@ -212,6 +245,7 @@ function App(): React.ReactElement {
   let strikes = Object.values(state.options).map((o) => o.strike.toUse).concat([state.symbol.price.toUse]);
   let lastExpiry = moment.unix(
     Object.values(state.options)
+      .filter((o) => o.expiry.toUse !== undefined)
       .map((o) => o.expiry.toUse.expirationTimestamp)
       .reduce((a, b) => Math.max(a, b), 0)
   );
@@ -304,284 +338,304 @@ function App(): React.ReactElement {
         (o.sale === OptionSale.Buy ? -1 : 1)
     )
     .reduce((a, b) => a + b, 0);
-
   if (state.loaded) {
     return (
-      <div className={classes.pageContainer}>
-        <Grid container direction="row" justify="space-between">
-          <Grid item xs={12} md={3}>
-            <Grid
-              container
-              direction="column"
-              justify="center"
-              alignItems="stretch"
-              spacing={0}
-            >
-              <GridColumn>
-                <SymbolCard
-                  className={classes.marginBot4}
-                  symbol={state.symbol}
-                  dispatch={dispatch}
-                />
-                {state.options.map((option) => {
-                  if (option.editing) {
-                    return (
-                      <OptionCard
-                        dispatch={dispatch}
-                        option={option}
-                        symbol={state.symbol}
-                      />
-                    );
-                  } else {
-                    return (
-                      <FixedOptionCard
-                        dispatch={dispatch}
-                        option={option}
-                        symbol={state.symbol}
-                      />
-                    );
-                  }
-                })}
-                {/* <StrategyCard
-                  dispatch={dispatch}
-                  symbol={state.symbol}
-                  optionData={optionData}
-                  options={state.options}
-                  price={state.price}
-                  optionMeta={optionMeta || undefined}
-                /> */}
-                <Tooltip title="Add Option">
-                  <Fab
-                    color="primary"
-                    onClick={(e) => dispatch({ type: "add" })}
-                  >
-                    <AddIcon />
-                  </Fab>
-                </Tooltip>
-              </GridColumn>
-            </Grid>
-          </Grid>
-
-          <Grid item sm={12} md={8}>
-            <Grid
-              direction="column"
-              container
-              justify="center"
-              alignItems="center"
-              spacing={1}
-            >
+      <BrowserRouter>
+      <Route
+          path="/"
+          render={({ location } : any) => (<>
+        <AppBar position="static">
+          <Tabs value={location.pathname} onChange={handleChange} aria-label="simple tabs example">
+            <Tab className={classes.tabLink} value="/optcalc" label="Options Calculator" component={Link} to={"/optcalc"}/>
+            <Tab className={classes.tabLink} value="/thetacalc" label="Put Sale Calculator"  component={Link} to={"/thetacalc"}/>
+          </Tabs>
+        </AppBar>
+        <Switch>
+        <Route path={"/thetacalc"} render={() => 
+          <TabPanel value={location.pathname} index="thetacalc">
+            <ThetaPage/>
+          </TabPanel>
+       } />
+        <Route path={"/optcalc"}>
+        <TabPanel value={location.pathname} index="optcalc">
+          <div className={classes.pageContainer}>
+          <Grid container direction="row" justify="space-between">
+            <Grid item xs={12} md={3}>
               <Grid
-                direction="row"
-                item
                 container
+                direction="column"
                 justify="center"
-                alignItems="center"
-                spacing={1}
+                alignItems="stretch"
+                spacing={0}
               >
-                <Grid item>
-                  Max Risk: ${maxRisk.toFixed(2)} <br />
-                  Max Profit: ${maxProfit.toFixed(2)}
-                </Grid>
-                <Grid item>
-                  Entry {entryCost > 0 ? "Credit" : "Debit"}: $
-                  {entryCost.toFixed(2)} <br />
-                  Max Gains: {((maxProfit / -maxRisk) * 100).toFixed(0)}%
-                </Grid>
-              </Grid>
-
-              <Grid item>
-                <TableContainer component={Paper}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell className={classes.headerCell}>
-                          Price
-                        </TableCell>
-                        {dateRange.map((d) => (
-                          <TableCell key={d} className={classes.headerCell}>
-                            {moment().add(d, "days").format("MM/DD")}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {predictedPriceRange.map((price) => {
-                        return (
-                          <TableRow>
-                            <Tooltip
-                              enterDelay={300}
-                              title={`${(
-                                ((price - symbolPrice(state.symbol)) /
-                                  symbolPrice(state.symbol)) *
-                                100
-                              ).toFixed(0)}%`}
-                            >
-                              <TableCell className={classes.headerCell}>
-                                ${price}
-                              </TableCell>
-                            </Tooltip>
-                            {dateRange.map((date) => {
-                              return (
-                                // <Tooltip
-                                //   enterDelay={3000}
-                                //   interactive
-                                //   title={<></>
-                                // <div>
-                                //   <Typography color="inherit">
-                                //     Breakdown
-                                //   </Typography>
-                                //   <Table>
-                                //     <TableRow>
-                                //       <TableCell style={{ color: "#ffffff" }}>
-                                //         SPY 4/20 $420c
-                                //       </TableCell>
-                                //       <TableCell>15</TableCell>
-                                //     </TableRow>
-                                //     <TableRow>
-                                //       <TableCell>
-                                //         SPY 4/20 $420c
-                                //       </TableCell>
-                                //       <TableCell>15</TableCell>
-                                //     </TableRow>
-                                //   </Table>
-                                // </div>
-                                //   }
-                                // >
-                                <TableCell
-                                  style={{
-                                    backgroundColor: gradient(
-                                      maxRisk,
-                                      maxProfit,
-                                      calcs[price][date]["profit"]
-                                    ),
-                                  }}
-                                  className={classes.smallCell}
-                                >
-                                  {state.display.profit ===
-                                  ProfitDisplay.PercentRisk
-                                    ? (
-                                        (calcs[price][date]["profit"] /
-                                          (-1 * maxRisk)) *
-                                        100
-                                      ).toFixed(0)
-                                    : calcs[price][date]["profit"].toFixed(2)}
-                                </TableCell>
-                                // </Tooltip>
-                              );
-                            })}
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Grid>
-              <Grid
-                item
-                container
-                direction="row"
-                justify="center"
-                alignItems="center"
-                spacing={1}
-                style={{ marginTop: "0.5em" }}
-              >
-                <Grid item>
-                  <TextField
-                    select
-                    variant="outlined"
-                    size="small"
-                    label="Display"
-                    value={state.display.profit}
-                    onChange={(e) =>
-                      dispatch({
-                        type: "display",
-                        payload: { field: "profit", value: e.target.value },
-                      })
+                <GridColumn>
+                  <SymbolCard
+                    className={classes.marginBot4}
+                    symbol={state.symbol}
+                    dispatch={dispatch}
+                  />
+                  {state.options.map((option) => {
+                    if (option.editing) {
+                      return (
+                        <OptionCard
+                          dispatch={dispatch}
+                          option={option}
+                          symbol={state.symbol}
+                        />
+                      );
+                    } else {
+                      return (
+                        <FixedOptionCard
+                          dispatch={dispatch}
+                          option={option}
+                          symbol={state.symbol}
+                        />
+                      );
                     }
-                  >
-                    <MenuItem value={ProfitDisplay.Absolute}>
-                      Absolute Profit
-                    </MenuItem>
-                    <MenuItem value={ProfitDisplay.PercentRisk}>
-                      Percent of Max Risk
-                    </MenuItem>
-                  </TextField>
-                </Grid>
-                <Grid item>
-                  <TextField
-                    variant="outlined"
-                    size="small"
-                    defaultValue={state.display.minPrice}
-                    label="Min Price"
-                    onChange={(e) =>
-                      dispatch({
-                        type: "display",
-                        payload: {
-                          field: "minPrice",
-                          value: Number(e.target.value),
-                        },
-                      })
-                    }
-                  ></TextField>
-                </Grid>
-                <Grid item>
-                  <TextField
-                    variant="outlined"
-                    size="small"
-                    defaultValue={state.display.maxPrice}
-                    label="Max Price"
-                    onChange={(e) =>
-                      dispatch({
-                        type: "display",
-                        payload: {
-                          field: "maxPrice",
-                          value: Number(e.target.value),
-                        },
-                      })
-                    }
-                  ></TextField>
-                </Grid>
-                <Grid item>
-                  <Tooltip title="Create Permalink">
-                    <Button
-                      variant="outlined"
-                      onClick={() => {
-                        storeState(state).then((result) => {
-                          setPermalink(
-                            `${window.location.protocol}/${window.location.host}?code=${result}`
-                          );
-                          window.history.pushState("", "", `?code=${result}`);
-                        });
-                      }}
+                  })}
+                  {/* <StrategyCard
+                    dispatch={dispatch}
+                    symbol={state.symbol}
+                    optionData={optionData}
+                    options={state.options}
+                    price={state.price}
+                    optionMeta={optionMeta || undefined}
+                  /> */}
+                  <Tooltip title="Add Option">
+                    <Fab
+                      color="primary"
+                      onClick={(e) => dispatch({ type: "add" })}
                     >
-                      <LinkIcon />
-                    </Button>
+                      <AddIcon />
+                    </Fab>
                   </Tooltip>
-                </Grid>
+                </GridColumn>
               </Grid>
-              {permalink.length > 0 ? (
+            </Grid>
+
+            <Grid item sm={12} md={8}>
+              <Grid
+                direction="column"
+                container
+                justify="center"
+                alignItems="center"
+                spacing={1}
+              >
+                <Grid
+                  direction="row"
+                  item
+                  container
+                  justify="center"
+                  alignItems="center"
+                  spacing={1}
+                >
+                  <Grid item>
+                    Max Risk: ${maxRisk.toFixed(2)} <br />
+                    Max Profit: ${maxProfit.toFixed(2)}
+                  </Grid>
+                  <Grid item>
+                    Entry {entryCost > 0 ? "Credit" : "Debit"}: $
+                    {entryCost.toFixed(2)} <br />
+                    Max Gains: {((maxProfit / -maxRisk) * 100).toFixed(0)}%
+                  </Grid>
+                </Grid>
+
+                <Grid item>
+                  <TableContainer component={Paper}>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell className={classes.headerCell}>
+                            Price
+                          </TableCell>
+                          {dateRange.map((d) => (
+                            <TableCell key={d} className={classes.headerCell}>
+                              {moment().add(d, "days").format("MM/DD")}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {predictedPriceRange.map((price) => {
+                          return (
+                            <TableRow>
+                              <Tooltip
+                                enterDelay={300}
+                                title={`${(
+                                  ((price - symbolPrice(state.symbol)) /
+                                    symbolPrice(state.symbol)) *
+                                  100
+                                ).toFixed(0)}%`}
+                              >
+                                <TableCell className={classes.headerCell}>
+                                  ${price}
+                                </TableCell>
+                              </Tooltip>
+                              {dateRange.map((date) => {
+                                return (
+                                  // <Tooltip
+                                  //   enterDelay={3000}
+                                  //   interactive
+                                  //   title={<></>
+                                  // <div>
+                                  //   <Typography color="inherit">
+                                  //     Breakdown
+                                  //   </Typography>
+                                  //   <Table>
+                                  //     <TableRow>
+                                  //       <TableCell style={{ color: "#ffffff" }}>
+                                  //         SPY 4/20 $420c
+                                  //       </TableCell>
+                                  //       <TableCell>15</TableCell>
+                                  //     </TableRow>
+                                  //     <TableRow>
+                                  //       <TableCell>
+                                  //         SPY 4/20 $420c
+                                  //       </TableCell>
+                                  //       <TableCell>15</TableCell>
+                                  //     </TableRow>
+                                  //   </Table>
+                                  // </div>
+                                  //   }
+                                  // >
+                                  <TableCell
+                                    style={{
+                                      backgroundColor: gradient(
+                                        maxRisk,
+                                        maxProfit,
+                                        calcs[price][date]["profit"]
+                                      ),
+                                    }}
+                                    className={classes.smallCell}
+                                  >
+                                    {state.display.profit ===
+                                    ProfitDisplay.PercentRisk
+                                      ? (
+                                          (calcs[price][date]["profit"] /
+                                            (-1 * maxRisk)) *
+                                          100
+                                        ).toFixed(0)
+                                      : calcs[price][date]["profit"].toFixed(2)}
+                                  </TableCell>
+                                  // </Tooltip>
+                                );
+                              })}
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Grid>
                 <Grid
                   item
                   container
-                  justify="flex-start"
-                  alignContent="flex-start"
-                  xs={6}
+                  direction="row"
+                  justify="center"
+                  alignItems="center"
+                  spacing={1}
+                  style={{ marginTop: "0.5em" }}
                 >
-                  <TextField
-                    fullWidth
-                    value={permalink}
-                    label="Permalink"
-                    variant="outlined"
-                    contentEditable={false}
-                  />
+                  <Grid item>
+                    <TextField
+                      select
+                      variant="outlined"
+                      size="small"
+                      label="Display"
+                      value={state.display.profit}
+                      onChange={(e) =>
+                        dispatch({
+                          type: "display",
+                          payload: { field: "profit", value: e.target.value },
+                        })
+                      }
+                    >
+                      <MenuItem value={ProfitDisplay.Absolute}>
+                        Absolute Profit
+                      </MenuItem>
+                      <MenuItem value={ProfitDisplay.PercentRisk}>
+                        Percent of Max Risk
+                      </MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid item>
+                    <TextField
+                      variant="outlined"
+                      size="small"
+                      defaultValue={state.display.minPrice}
+                      label="Min Price"
+                      onChange={(e) =>
+                        dispatch({
+                          type: "display",
+                          payload: {
+                            field: "minPrice",
+                            value: Number(e.target.value),
+                          },
+                        })
+                      }
+                    ></TextField>
+                  </Grid>
+                  <Grid item>
+                    <TextField
+                      variant="outlined"
+                      size="small"
+                      defaultValue={state.display.maxPrice}
+                      label="Max Price"
+                      onChange={(e) =>
+                        dispatch({
+                          type: "display",
+                          payload: {
+                            field: "maxPrice",
+                            value: Number(e.target.value),
+                          },
+                        })
+                      }
+                    ></TextField>
+                  </Grid>
+                  <Grid item>
+                    <Tooltip title="Create Permalink">
+                      <Button
+                        variant="outlined"
+                        onClick={() => {
+                          storeState(state).then((result) => {
+                            setPermalink(
+                              `${window.location.protocol}/${window.location.host}?code=${result}`
+                            );
+                            window.history.pushState("", "", `?code=${result}`);
+                          });
+                        }}
+                      >
+                        <LinkIcon />
+                      </Button>
+                    </Tooltip>
+                  </Grid>
                 </Grid>
-              ) : (
-                <></>
-              )}
+                {permalink.length > 0 ? (
+                  <Grid
+                    item
+                    container
+                    justify="flex-start"
+                    alignContent="flex-start"
+                    xs={6}
+                  >
+                    <TextField
+                      fullWidth
+                      value={permalink}
+                      label="Permalink"
+                      variant="outlined"
+                      contentEditable={false}
+                    />
+                  </Grid>
+                ) : (
+                  <></>
+                )}
+              </Grid>
             </Grid>
           </Grid>
-        </Grid>
-      </div>
+          </div>
+        </TabPanel></Route></Switch></>)}
+        />
+        </BrowserRouter>
     );
   } else {
     return <></>;
