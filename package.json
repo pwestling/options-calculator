@@ -20,7 +20,7 @@
     "@types/react-plotly.js": "^2.2.4",
     "@types/react-router-dom": "^5.1.7",
     "@types/uuid": "^7.0.2",
-    "axios": "^0.19.2",
+    "axios": "^0.21.1",
     "base64url": "^3.0.1",
     "binser": "^0.9.8",
     "black-scholes": "^1.1.0",
