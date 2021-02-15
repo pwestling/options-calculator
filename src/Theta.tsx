@@ -41,6 +41,7 @@ import { OptionChain, OptionMeta, Quote, ContractData, ContractDataByStrike } fr
 
 import {
   Symbol,
+  OptionType
 } from "./Types";
 
 type Updater<T> = (arg: T) => void
@@ -74,6 +75,8 @@ function SymbolCard(props: {
   setExpiration: Updater<Expiration | null>;
   className?: any;
   symbol: Symbol;
+  setPutOrCall: Updater<OptionType>;
+  putOrCall: OptionType
 }): React.ReactElement {
   return (
     <Card className={props.className} raised>
@@ -118,8 +121,21 @@ function SymbolCard(props: {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
+          <Select
+              id="combo-box-type"
+              style={{width: "100%"}}
+              value={props.putOrCall}
+              autoWidth
+              onChange={(event: any) => {
+                props.setPutOrCall(event.target.value)
+              }}
+            >
+                <MenuItem value={OptionType.Put}>Put</MenuItem>
+                <MenuItem value={OptionType.Call}>Call</MenuItem>
+              </Select>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
           <Autocomplete
-              freeSolo
               blurOnSelect
               size="small"
               id="combo-box-expiry"
@@ -177,6 +193,7 @@ function sortBy<T>(keyFn: (e: T) => number, dir: "asc" | "desc"): (e1: T, e2: T)
 
 export function ThetaPage(props: {}): React.ReactElement {
   const [symbol, setSymbol] = useState(emptySymbol)
+  const [putOrCall, setPutOrCall] = useState<OptionType>(OptionType.Put)
   const [expiration, setExpiration] = useState<Expiration | null>(null)
   const [minReturn, setMinReturn] = useState<Number>(0)
   const [maxStrike, setMaxStrike] = useState<Number>(9999999999999999)
@@ -198,8 +215,8 @@ export function ThetaPage(props: {}): React.ReactElement {
     }
   }, [symbol, expiration])
 
-  const targetData: ContractDataByStrike = optionCache[symbol.symbol +":"+expiration?.expirationTimestamp] ?
-  optionCache[symbol.symbol +":"+expiration?.expirationTimestamp].put : {}
+  const targetDataChain: OptionChain | undefined = optionCache[symbol.symbol +":"+expiration?.expirationTimestamp]
+  const targetData = (putOrCall === OptionType.Put ? targetDataChain?.put : targetDataChain?.call) || {}
   console.log("Render")
   console.log(Object.keys(targetData))
   var dte = 0
@@ -212,7 +229,7 @@ export function ThetaPage(props: {}): React.ReactElement {
   }
 
   const strikeSort = (cd: ContractData) => cd.strike || 0
-  const effSort = (cd: ContractData) => (cd.strike || 0) - (cd.lastPrice || 0)
+  const effSort = (cd: ContractData) => (cd.strike || 0) + ((putOrCall === "put" ? - 1 : 1) * (cd.lastPrice || 0))
   const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/(cd.strike || 0)
   const openInterestSort = (cd: ContractData) =>  (cd.openInterest || 0)
 
@@ -224,7 +241,7 @@ export function ThetaPage(props: {}): React.ReactElement {
     .filter(cd => effSort(cd) < maxEffPrice)
 
   return <>
-    <SymbolCard setSymbol={setSymbol} setExpiration={setExpiration} symbol={symbol}/>
+    <SymbolCard setSymbol={setSymbol} setExpiration={setExpiration} symbol={symbol} setPutOrCall={setPutOrCall} putOrCall={putOrCall}/>
     <div className={classes.pageContainer}>
     <Grid container spacing={3}>
     <Grid item xs={6} sm={3} xl={1}>
@@ -378,7 +395,7 @@ export function ThetaPage(props: {}): React.ReactElement {
         return <TableRow>
           <TableCell>${strikePrice}</TableCell>
           <TableCell>${opt.lastPrice}</TableCell>
-          <TableCell>${(strikePrice - (opt.lastPrice || 0)).toFixed(2)}</TableCell>
+          <TableCell>${effSort(opt).toFixed(2)}</TableCell>
           <TableCell>{((opt.impliedVolatility || 0) * 100).toFixed(0)}%</TableCell>
           <TableCell>{opt.openInterest}</TableCell>
 
