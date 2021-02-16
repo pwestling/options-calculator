@@ -9,6 +9,7 @@ import React, {
 import Grid from "@material-ui/core/Grid";
 import Card from "@material-ui/core/Card";
 import CardContent from "@material-ui/core/CardContent";
+import CardHeader from "@material-ui/core/CardHeader";
 
 import bs from "black-scholes";
 import moment from "moment";
@@ -31,6 +32,8 @@ import Paper from "@material-ui/core/Paper";
 import Tooltip from "@material-ui/core/Tooltip";
 import Autocomplete from "@material-ui/lab/Autocomplete";
 import Box from "@material-ui/core/Box";
+import Typography from "@material-ui/core/Typography"
+import {BSHolder, BS} from  "./blackscholes"
 
 import msgpack from "notepack";
 import FormControl from "@material-ui/core/FormControl";
@@ -96,7 +99,7 @@ function SymbolCard(props: {
               margin="none"
               helperText={props.symbol?.name}
               onChange={(e: any) => {
-                props.setExpiration(null)
+                // props.setExpiration(null)
                 return updateSymbol(e?.target?.value).then(props.setSymbol)
               }}
             />
@@ -196,29 +199,38 @@ export function ThetaPage(props: {}): React.ReactElement {
   const [putOrCall, setPutOrCall] = useState<OptionType>(OptionType.Put)
   const [expiration, setExpiration] = useState<Expiration | null>(null)
   const [minReturn, setMinReturn] = useState<Number>(0)
-  const [maxStrike, setMaxStrike] = useState<Number>(9999999999999999)
-  const [maxEffPrice, setMaxEffPrice] = useState<Number>(9999999999999999)
+  const [maxStrike, setMaxStrike] = useState<Number>(99999999999999)
+  const [maxEffPrice, setMaxEffPrice] = useState<Number>(99999999999999)
+  const [minOpenInterest, setMinOpenInterest] = useState<Number>(0)
 
   const [optionCache, setOptionCache] = useState({} as OptionCache)
   const classes = useStyles();
 
-  const optionData = useMemo(async () => {
+  const cacheKey = symbol.symbol + ":" + expiration?.expirationTimestamp;
+
+  useMemo(async () => {
     if(symbol.meta && expiration != null){
       console.log(symbol.symbol, expiration)
-       const chain = await yf.options(symbol.symbol, expiration.expirationTimestamp)
-       setOptionCache((oldCache) => {
-        const newCache = Object.assign({}, oldCache)
-        newCache[symbol.symbol +":"+expiration.expirationTimestamp] = chain
-        console.log("Set", newCache)
-        return newCache
-      })
+      console.log("Fetching", symbol, expiration)
+        if(optionCache[cacheKey] === undefined){
+          try{
+          const chain = await yf.options(symbol.symbol, expiration.expirationTimestamp)
+          setOptionCache((oldCache) => {
+            const newCache = Object.assign({}, oldCache)
+            newCache[cacheKey] = chain
+            console.log("Set", newCache)
+            return newCache
+          })
+        } catch(e){
+          //pass
+        }
+      }
     }
   }, [symbol, expiration])
 
   const targetDataChain: OptionChain | undefined = optionCache[symbol.symbol +":"+expiration?.expirationTimestamp]
   const targetData = (putOrCall === OptionType.Put ? targetDataChain?.put : targetDataChain?.call) || {}
   console.log("Render")
-  console.log(Object.keys(targetData))
   var dte = 0
   var compoundingPower = 0
   if(expiration){
@@ -232,21 +244,30 @@ export function ThetaPage(props: {}): React.ReactElement {
   const effSort = (cd: ContractData) => (cd.strike || 0) + ((putOrCall === "put" ? - 1 : 1) * (cd.lastPrice || 0))
   const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/(cd.strike || 0)
   const openInterestSort = (cd: ContractData) =>  (cd.openInterest || 0)
+  const impliedVolSort = (cd: ContractData) =>  (cd.impliedVolatility || 0)
 
   const [sorter, setSorter] = useState<SortHandler>({key: "strike", sortFn: strikeSort, direction: "asc"})
   const contracts: ContractData[] = Object.values(targetData) as ContractData[]
   const sortedTargetData: ContractData[] = contracts.sort(sortBy(sorter.sortFn, sorter.direction))
-    .filter(cd => returnSort(cd) > minReturn)
-    .filter(cd => strikeSort(cd) < maxStrike)
-    .filter(cd => effSort(cd) < maxEffPrice)
+    .filter(cd => returnSort(cd) >= minReturn)
+    .filter(cd => strikeSort(cd) <= maxStrike)
+    .filter(cd => effSort(cd) <= maxEffPrice)
+    .filter(cd => openInterestSort(cd) >= minOpenInterest)
+
+
+  const totalInterest = contracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
 
   return <>
     <SymbolCard setSymbol={setSymbol} setExpiration={setExpiration} symbol={symbol} setPutOrCall={setPutOrCall} putOrCall={putOrCall}/>
     <div className={classes.pageContainer}>
-    <Grid container spacing={3}>
-    <Grid item xs={6} sm={3} xl={1}>
-      <Card >
-        <CardContent>
+    <Card>
+     
+    <CardContent>
+    <Typography color="textSecondary" gutterBottom>
+          Filters
+    </Typography>
+    <Grid container spacing={1}>
+    <Grid item xs={3} sm={2}>
           <FormControl>
               <TextField
                 variant="outlined"
@@ -263,12 +284,8 @@ export function ThetaPage(props: {}): React.ReactElement {
                 }}
               />
             </FormControl>
-        </CardContent>
-      </Card>
       </Grid>
-      <Grid item xs={6} sm={3} xl={1}>
-      <Card >
-        <CardContent>
+      <Grid item xs={3} sm={2}>
           <FormControl>
               <TextField
                 variant="outlined"
@@ -285,17 +302,13 @@ export function ThetaPage(props: {}): React.ReactElement {
                 }}
               />
             </FormControl>
-        </CardContent>
-      </Card>
       </Grid>
-      <Grid item xs={6} sm={3} xl={1}>
-      <Card >
-        <CardContent>
+      <Grid item xs={3} sm={2}>
           <FormControl>
               <TextField
                 variant="outlined"
                 size="small"
-                label="Max Eff. Price"
+                label="Max Exe. Price"
                 margin="none"
                 onChange={(e) => {
                   const returnNum = Number.parseFloat(e?.target?.value)
@@ -307,10 +320,43 @@ export function ThetaPage(props: {}): React.ReactElement {
                 }}
               />
             </FormControl>
-        </CardContent>
+      </Grid>
+      <Grid item xs={3} sm={2}>
+          <FormControl>
+              <TextField
+                variant="outlined"
+                size="small"
+                label="Min Open Interest"
+                margin="none"
+                onChange={(e) => {
+                  const returnNum = Number.parseFloat(e?.target?.value)
+                  if(isNaN(returnNum)){
+                    setMinOpenInterest(0)
+                  }else{
+                    setMinOpenInterest(returnNum)
+                  }
+                }}
+              />
+            </FormControl>
+      </Grid>
+      </Grid>
+      </CardContent>
       </Card>
+      <Box marginBottom={2} marginTop={2}>
+    
+      <Card>
+      <CardContent>
+      <Typography color="textSecondary" gutterBottom>
+          Info
+      </Typography>
+      <Grid container spacing={2}>
+      <Grid item xl={2}>
+      <Typography>Total Open Interest: {totalInterest}</Typography>
       </Grid>
       </Grid>
+      </CardContent>
+      </Card>
+      </Box>
       <Table>
         <TableHead>
           <TableRow>
@@ -344,11 +390,29 @@ export function ThetaPage(props: {}): React.ReactElement {
                   })
                 }}
               >
-              Effective Share Price
+              Execution Share Price
               </TableSortLabel>
             </TableCell>
             <TableCell>
+              Delta
+            </TableCell>
+            <TableCell>
+              Leverage
+            </TableCell>
+            <TableCell>
+            <TableSortLabel
+                active={sorter.key === 'impliedVol'}
+                direction={sorter.direction}
+                onClick={() => {
+                  setSorter({
+                    key: "impliedVol",
+                    sortFn: impliedVolSort,
+                    direction: sorter.key !== 'impliedVol' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
+                  })
+                }}
+              >
               Implied Volatility
+              </TableSortLabel>
             </TableCell>
             <TableCell>
             <TableSortLabel
@@ -365,6 +429,7 @@ export function ThetaPage(props: {}): React.ReactElement {
               Open Interest
               </TableSortLabel>
             </TableCell>
+            <TableCell>DTE</TableCell>
             <TableCell>
             <TableSortLabel
                 active={sorter.key === 'return'}
@@ -380,34 +445,36 @@ export function ThetaPage(props: {}): React.ReactElement {
               Return
               </TableSortLabel>
             </TableCell>
-            <TableCell>
-              Annualized Return (Compounding)
-            </TableCell>
           </TableRow>
         </TableHead>
-    {sortedTargetData.map((opt: ContractData) => 
-      {
-      console.log("Card", opt.strike)
-      const strikePrice =opt.strike || 0;
-      if(opt){
-        const percentReturn = (opt.lastPrice || opt.bid || 0)/strikePrice
-        const compoundReturn = Math.pow((1+percentReturn), compoundingPower)
-        return <TableRow>
-          <TableCell>${strikePrice}</TableCell>
-          <TableCell>${opt.lastPrice}</TableCell>
-          <TableCell>${effSort(opt).toFixed(2)}</TableCell>
-          <TableCell>{((opt.impliedVolatility || 0) * 100).toFixed(0)}%</TableCell>
-          <TableCell>{opt.openInterest}</TableCell>
+          <TableBody>
+          {sortedTargetData.map((opt: ContractData) => 
+            {
+            const strikePrice =opt.strike || 0;
+            if(opt){
+              const percentReturn = (opt.lastPrice || opt.bid || 0)/strikePrice
+              const compoundReturn = Math.pow((1+percentReturn), compoundingPower)
+              const bs = new BSHolder((symbol.price.actual || 0), strikePrice, 0, (opt.impliedVolatility || 0), dte/365)
+              const delta = putOrCall === OptionType.Put ? BS.pdelta(bs) : BS.cdelta(bs)
+              return <TableRow>
+                <TableCell>${strikePrice}</TableCell>
+                <TableCell>${opt.lastPrice}</TableCell>
+                <TableCell>${effSort(opt).toFixed(2)}</TableCell>
+                <TableCell>{delta.toFixed(3)}</TableCell>
+                <TableCell>{Math.abs(((delta || 0) * (symbol.price.actual || 0)) / (opt.lastPrice || 1)).toFixed(2)}</TableCell>
 
-          <TableCell>{(percentReturn * 100).toFixed(2)}%</TableCell>
-          <TableCell>{((compoundReturn - 1) * 100).toFixed(2)}%</TableCell>
+                <TableCell>{((opt.impliedVolatility || 0) * 100).toFixed(0)}%</TableCell>
+                <TableCell>{opt.openInterest}</TableCell>
+                <TableCell>{dte.toFixed(0)}</TableCell>
+                <TableCell>{(percentReturn * 100).toFixed(2)}%</TableCell>
 
-        </TableRow>
-      }else{
-        return <></>
-      }
-      }
-    )}
+              </TableRow>
+            }else{
+              return <></>
+            }
+            }
+          )}
+      </TableBody>
     </Table>
     </div>
     </>

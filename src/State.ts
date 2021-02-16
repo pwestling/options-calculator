@@ -108,23 +108,27 @@ const dataCache: ChainCache = {
 };
 
 function updateDataCache(symbol: string): Promise<void> {
-  let loadQuote = yf.quote(symbol).then((q) => (dataCache.quote = q));
-  let loadDataCache = yf.optionMeta(symbol).then((meta) => {
-    dataCache.meta = meta;
-    meta.expirations.forEach((exp) => {
-      if(exp){
-        yf.options(symbol, exp.expirationTimestamp).then((chain) => {
-          dataCache[exp.expirationTimestamp] = chain;
-        });
-      }
+  try{
+    let loadQuote = yf.quote(symbol).then((q) => (dataCache.quote = q));
+    let loadDataCache = yf.optionMeta(symbol).then((meta) => {
+      dataCache.meta = meta;
+      meta.expirations.forEach((exp) => {
+        if(exp){
+          yf.options(symbol, exp.expirationTimestamp).then((chain) => {
+            dataCache[exp.expirationTimestamp] = chain;
+          });
+        }
+      });
     });
-  });
 
-  dataCache.loadPromise = Promise.all([
-    loadQuote,
-    loadDataCache,
-  ]).then(() => {});
-  return dataCache.loadPromise;
+    dataCache.loadPromise = Promise.all([
+      loadQuote,
+      loadDataCache,
+    ]).then(() => {});
+    return dataCache.loadPromise;
+  }catch(e){
+    return Promise.resolve()
+  }
 }
 
 function d(dispatch: MutableRefObject<Dispatch | undefined>, action: Action) {

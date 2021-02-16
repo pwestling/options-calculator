@@ -34,6 +34,9 @@ import AppBar from '@material-ui/core/AppBar';
 import Tabs from '@material-ui/core/Tabs';
 import Tab from '@material-ui/core/Tab';
 import Box from '@material-ui/core/Box'
+import ThemeProvider from "@material-ui/styles/ThemeProvider"
+import { createMuiTheme } from '@material-ui/core/styles';
+import CssBaseline from "@material-ui/core/CssBaseline";
 
 import msgpack from "notepack";
 import FormControl from "@material-ui/core/FormControl";
@@ -206,6 +209,16 @@ function gradient(maxRisk: number, maxProfit: number, profit: number): string {
 
 const cache = {} as any;
 
+const darkTheme = createMuiTheme({
+  palette: {
+    type: 'dark',
+    background: {
+      paper: "rgba(20,20,20,1)",
+      default: "rgba(0,0,0,1)"
+    },
+  },
+});
+
 function App(): React.ReactElement {
   const classes = useStyles();
 
@@ -340,6 +353,9 @@ function App(): React.ReactElement {
     .reduce((a, b) => a + b, 0);
   if (state.loaded) {
     return (
+      <ThemeProvider theme={darkTheme}>
+         <CssBaseline />
+        <Box>
       <BrowserRouter>
       <Route
           path="/"
@@ -347,7 +363,7 @@ function App(): React.ReactElement {
         <AppBar position="static">
           <Tabs value={location.pathname} onChange={handleChange} aria-label="simple tabs example">
             <Tab className={classes.tabLink} value="/optcalc" label="Options Calculator" component={Link} to={"/optcalc"}/>
-            <Tab className={classes.tabLink} value="/thetacalc" label="Put Sale Calculator"  component={Link} to={"/thetacalc"}/>
+            <Tab className={classes.tabLink} value="/thetacalc" label="Options Data"  component={Link} to={"/thetacalc"}/>
           </Tabs>
         </AppBar>
         <Switch>
@@ -636,6 +652,8 @@ function App(): React.ReactElement {
         </TabPanel></Route></Switch></>)}
         />
         </BrowserRouter>
+        </Box>
+        </ThemeProvider>
     );
   } else {
     return <></>;
