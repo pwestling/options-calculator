@@ -29,7 +29,7 @@
     "byte-buffer": "^2.0.0",
     "git": "^0.1.5",
     "immer": "^8.0.0",
-    "jquery": "^3.4.1",
+    "jquery": "^3.5.0",
     "jsonbox-node": "^1.0.7",
     "moment": "^2.24.0",
     "msgpack-lite": "^0.1.26",
