@@ -24,7 +24,6 @@
     "base64url": "^3.0.1",
     "binser": "^0.9.8",
     "black-scholes": "^1.1.0",
-    "blackscholesjs": "https://github.com/colbyhemond/BlackScholesJS.git",
     "bootstrap": "^4.4.1",
     "byte-buffer": "^2.0.0",
     "git": "^0.1.5",

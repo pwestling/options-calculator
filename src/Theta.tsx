@@ -33,7 +33,6 @@ import Tooltip from "@material-ui/core/Tooltip";
 import Autocomplete from "@material-ui/lab/Autocomplete";
 import Box from "@material-ui/core/Box";
 import Typography from "@material-ui/core/Typography"
-import {BSHolder, BS} from  "./blackscholes"
 
 import msgpack from "notepack";
 import FormControl from "@material-ui/core/FormControl";
@@ -175,7 +174,7 @@ type OptionCache = {
 
 type SortHandler = {
   key: string;
-  sortFn(data: ContractData): number;
+  sortFn: ContractSorter;
   direction: "asc" | "desc"
 }
 
@@ -194,6 +193,26 @@ function sortBy<T>(keyFn: (e: T) => number, dir: "asc" | "desc"): (e1: T, e2: T)
   }
 }
 
+type ContractSorter = (data: ContractData) => number
+
+function SortableColHeader(props: {name: string, sorter: SortHandler, sortFn: ContractSorter, setSorter: Updater<SortHandler>}):  React.ReactElement {
+  return  <TableCell>
+            <TableSortLabel
+              active={props.sorter.key === props.name}
+              direction={props.sorter.direction}
+              onClick={() => {
+                props.setSorter({
+                  key: props.name,
+                  sortFn: props.sortFn,
+                  direction: props.sorter.key !== props.name ? props.sorter.direction : (props.sorter.direction === "asc" ? "desc" : "asc")
+                })
+              }}
+            >
+            {props.name}
+            </TableSortLabel>
+          </TableCell>
+} 
+
 export function ThetaPage(props: {}): React.ReactElement {
   const [symbol, setSymbol] = useState(emptySymbol)
   const [putOrCall, setPutOrCall] = useState<OptionType>(OptionType.Put)
@@ -202,6 +221,8 @@ export function ThetaPage(props: {}): React.ReactElement {
   const [maxStrike, setMaxStrike] = useState<Number>(99999999999999)
   const [maxEffPrice, setMaxEffPrice] = useState<Number>(99999999999999)
   const [minOpenInterest, setMinOpenInterest] = useState<Number>(0)
+  const [hypotheticalIV, setHypotheticalIV] = useState<number>(0)
+  const [hypotheticalUnderlying, setHypotheticalUnderlying] = useState<number>(0)
 
   const [optionCache, setOptionCache] = useState({} as OptionCache)
   const classes = useStyles();
@@ -245,6 +266,15 @@ export function ThetaPage(props: {}): React.ReactElement {
   const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/(cd.strike || 0)
   const openInterestSort = (cd: ContractData) =>  (cd.openInterest || 0)
   const impliedVolSort = (cd: ContractData) =>  (cd.impliedVolatility || 0)
+  const whatIfSort = (cd: ContractData) =>  {
+    if(cd.priceForIV && hypotheticalIV > 0){
+      const ivtoUse = hypotheticalIV > 0? hypotheticalIV : undefined;
+      const underlyingtoUse = hypotheticalUnderlying > 0 ? hypotheticalUnderlying : undefined
+      return cd.priceForIV(ivtoUse, underlyingtoUse)
+    }else{
+      return 0;
+    }
+  }
 
   const [sorter, setSorter] = useState<SortHandler>({key: "strike", sortFn: strikeSort, direction: "asc"})
   const contracts: ContractData[] = Object.values(targetData) as ContractData[]
@@ -339,6 +369,42 @@ export function ThetaPage(props: {}): React.ReactElement {
               />
             </FormControl>
       </Grid>
+      <Grid item xs={3} sm={2}>
+          <FormControl>
+              <TextField
+                variant="outlined"
+                size="small"
+                label="Hypothetical IV"
+                margin="none"
+                onChange={(e) => {
+                  const returnNum = Number.parseFloat(e?.target?.value)
+                  if(isNaN(returnNum)){
+                    setHypotheticalIV(0)
+                  }else{
+                    setHypotheticalIV(returnNum/100)
+                  }
+                }}
+              />
+            </FormControl>
+      </Grid>
+      <Grid item xs={3} sm={2}>
+          <FormControl>
+              <TextField
+                variant="outlined"
+                size="small"
+                label="Hypothetical Price"
+                margin="none"
+                onChange={(e) => {
+                  const returnNum = Number.parseFloat(e?.target?.value)
+                  if(isNaN(returnNum)){
+                    setHypotheticalUnderlying(0)
+                  }else{
+                    setHypotheticalUnderlying(returnNum)
+                  }
+                }}
+              />
+            </FormControl>
+      </Grid>
       </Grid>
       </CardContent>
       </Card>
@@ -360,91 +426,17 @@ export function ThetaPage(props: {}): React.ReactElement {
       <Table>
         <TableHead>
           <TableRow>
-            <TableCell>
-              <TableSortLabel
-                active={sorter.key === 'strike'}
-                direction={sorter.direction}
-                onClick={() => {
-                  setSorter({
-                    key: "strike",
-                    sortFn: strikeSort,
-                    direction: sorter.key !== 'strike' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
-                  })
-                }}
-              >
-              Strike
-              </TableSortLabel>
-            </TableCell>
-            <TableCell>
-              Price
-            </TableCell>
-            <TableCell>
-            <TableSortLabel
-                active={sorter.key === 'effprice'}
-                direction={sorter.direction}
-                onClick={() => {
-                  setSorter({
-                    key: "effprice",
-                    sortFn: effSort,
-                    direction: sorter.key !== 'effprice' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
-                  })
-                }}
-              >
-              Execution Share Price
-              </TableSortLabel>
-            </TableCell>
-            <TableCell>
-              Delta
-            </TableCell>
-            <TableCell>
-              Leverage
-            </TableCell>
-            <TableCell>
-            <TableSortLabel
-                active={sorter.key === 'impliedVol'}
-                direction={sorter.direction}
-                onClick={() => {
-                  setSorter({
-                    key: "impliedVol",
-                    sortFn: impliedVolSort,
-                    direction: sorter.key !== 'impliedVol' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
-                  })
-                }}
-              >
-              Implied Volatility
-              </TableSortLabel>
-            </TableCell>
-            <TableCell>
-            <TableSortLabel
-                active={sorter.key === 'openint'}
-                direction={sorter.direction}
-                onClick={() => {
-                  setSorter({
-                    key: "openint",
-                    sortFn: openInterestSort,
-                    direction: sorter.key !== 'openint' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
-                  })
-                }}
-              >
-              Open Interest
-              </TableSortLabel>
-            </TableCell>
-            <TableCell>DTE</TableCell>
-            <TableCell>
-            <TableSortLabel
-                active={sorter.key === 'return'}
-                direction={sorter.direction}
-                onClick={() => {
-                  setSorter({
-                    key: "return",
-                    sortFn: returnSort,
-                    direction: sorter.key !== 'return' ? sorter.direction : (sorter.direction === "asc" ? "desc" : "asc")
-                  })
-                }}
-              >
-              Return
-              </TableSortLabel>
-            </TableCell>
+            <SortableColHeader name={"Strike"} sortFn={strikeSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Price"} sortFn={(cd: ContractData) => cd.lastPrice || 0} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Execution Share Price"} sortFn={effSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Delta"} sortFn={(cd: ContractData) => cd.delta || 0} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Gamma"} sortFn={(cd: ContractData) => cd.gamma || 0} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Leverage"} sortFn={(cd: ContractData) => cd.leverage || 0} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Implied Volatility"} sortFn={impliedVolSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"What-If Price"} sortFn={whatIfSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Open Intrest"} sortFn={openInterestSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"DTE"} sortFn={strikeSort} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Return"} sortFn={returnSort} sorter={sorter} setSorter={setSorter} />
           </TableRow>
         </TableHead>
           <TableBody>
@@ -454,16 +446,19 @@ export function ThetaPage(props: {}): React.ReactElement {
             if(opt){
               const percentReturn = (opt.lastPrice || opt.bid || 0)/strikePrice
               const compoundReturn = Math.pow((1+percentReturn), compoundingPower)
-              const bs = new BSHolder((symbol.price.actual || 0), strikePrice, 0, (opt.impliedVolatility || 0), dte/365)
-              const delta = putOrCall === OptionType.Put ? BS.pdelta(bs) : BS.cdelta(bs)
+              const delta = opt.delta ?? 0
+              const gamma = opt.gamma ?? 0
+
               return <TableRow>
                 <TableCell>${strikePrice}</TableCell>
                 <TableCell>${opt.lastPrice}</TableCell>
                 <TableCell>${effSort(opt).toFixed(2)}</TableCell>
                 <TableCell>{delta.toFixed(3)}</TableCell>
-                <TableCell>{Math.abs(((delta || 0) * (symbol.price.actual || 0)) / (opt.lastPrice || 1)).toFixed(2)}</TableCell>
+                <TableCell>{gamma.toFixed(3)}</TableCell>
+                <TableCell>{(opt.leverage ?? 0).toFixed(2)}</TableCell>
 
                 <TableCell>{((opt.impliedVolatility || 0) * 100).toFixed(0)}%</TableCell>
+                <TableCell>${whatIfSort(opt).toFixed(2)}</TableCell>
                 <TableCell>{opt.openInterest}</TableCell>
                 <TableCell>{dte.toFixed(0)}</TableCell>
                 <TableCell>{(percentReturn * 100).toFixed(2)}%</TableCell>

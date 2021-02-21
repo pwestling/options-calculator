@@ -2499,10 +2499,6 @@ black-scholes@^1.1.0:
   resolved "https://registry.yarnpkg.com/black-scholes/-/black-scholes-1.1.0.tgz#2db77cfaf48ff9dae0d5d03693aeb02ef22f9b09"
   integrity sha1-Lbd8+vSP+drg1dA2k66wLvIvmwk=
 
-"blackscholesjs@https://github.com/colbyhemond/BlackScholesJS.git":
-  version "1.0.0"
-  resolved "https://github.com/colbyhemond/BlackScholesJS.git#a8fce589f762119971af20179db28dce46c43ab4"
-
 bluebird@^3.5.5:
   version "3.7.2"
   resolved "https://registry.yarnpkg.com/bluebird/-/bluebird-3.7.2.tgz#9f229c15be272454ffa973ace0dbee79a1b0c36f"
