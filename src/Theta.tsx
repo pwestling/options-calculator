@@ -251,6 +251,9 @@ export function ThetaPage(props: {}): React.ReactElement {
 
   const targetDataChain: OptionChain | undefined = optionCache[symbol.symbol +":"+expiration?.expirationTimestamp]
   const targetData = (putOrCall === OptionType.Put ? targetDataChain?.put : targetDataChain?.call) || {}
+  const putData = targetDataChain?.put || {}
+  const callData = targetDataChain?.call || {}
+
   console.log("Render")
   var dte = 0
   var compoundingPower = 0
@@ -278,6 +281,9 @@ export function ThetaPage(props: {}): React.ReactElement {
 
   const [sorter, setSorter] = useState<SortHandler>({key: "strike", sortFn: strikeSort, direction: "asc"})
   const contracts: ContractData[] = Object.values(targetData) as ContractData[]
+  const putContracts: ContractData[] = Object.values(putData) as ContractData[]
+  const callContracts: ContractData[] = Object.values(callData) as ContractData[]
+
   const sortedTargetData: ContractData[] = contracts.sort(sortBy(sorter.sortFn, sorter.direction))
     .filter(cd => returnSort(cd) >= minReturn)
     .filter(cd => strikeSort(cd) <= maxStrike)
@@ -285,7 +291,14 @@ export function ThetaPage(props: {}): React.ReactElement {
     .filter(cd => openInterestSort(cd) >= minOpenInterest)
 
 
-  const totalInterest = contracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
+  const callInterest = callContracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
+  const callGamma = callContracts.map(cd => (cd.gamma || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
+  const callDelta = callContracts.map(cd => (cd.delta || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
+
+  const putInterest = putContracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
+  const putGamma = putContracts.map(cd => (cd.gamma || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
+  const putDelta = putContracts.map(cd => (cd.delta || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
+
 
   return <>
     <SymbolCard setSymbol={setSymbol} setExpiration={setExpiration} symbol={symbol} setPutOrCall={setPutOrCall} putOrCall={putOrCall}/>
@@ -416,9 +429,39 @@ export function ThetaPage(props: {}): React.ReactElement {
           Info
       </Typography>
       <Grid container spacing={2}>
-      <Grid item xl={2}>
-      <Typography>Total Open Interest: {totalInterest}</Typography>
-      </Grid>
+        <Grid item xl={12}>
+          <Grid item xl={3}>
+          <Typography>Call Open Interest: {callInterest}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Call Gamma: {callGamma.toFixed(3)}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Call Delta: {callDelta.toFixed(3)}</Typography>
+          </Grid>
+        </Grid>
+        <Grid item xl={12}>
+          <Grid item xl={3}>
+          <Typography>Put Open Interest: {putInterest}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Put Gamma: {putGamma.toFixed(3)}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Put Delta: {putDelta.toFixed(3)}</Typography>
+          </Grid>
+        </Grid>
+        <Grid item xl={12}>
+          <Grid item xl={3}>
+          <Typography>Put Call Ratio: {(putInterest/callInterest).toFixed(2)}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Net Gamma: {(callGamma - putGamma).toFixed(3)}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>Net Delta: {(callDelta + putDelta).toFixed(3)}</Typography>
+          </Grid>
+        </Grid>
       </Grid>
       </CardContent>
       </Card>
