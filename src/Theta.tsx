@@ -266,7 +266,7 @@ export function ThetaPage(props: {}): React.ReactElement {
 
   const strikeSort = (cd: ContractData) => cd.strike || 0
   const effSort = (cd: ContractData) => (cd.strike || 0) + ((putOrCall === "put" ? - 1 : 1) * (cd.lastPrice || 0))
-  const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/(cd.strike || 0)
+  const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/((cd.strike || 0) - (cd.lastPrice || 0))
   const openInterestSort = (cd: ContractData) =>  (cd.openInterest || 0)
   const impliedVolSort = (cd: ContractData) =>  (cd.impliedVolatility || 0)
   const whatIfSort = (cd: ContractData) =>  {
@@ -292,10 +292,14 @@ export function ThetaPage(props: {}): React.ReactElement {
 
 
   const callInterest = callContracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
+  const itmCalls = callContracts.filter(cd => (cd.strike || 0) < (symbol.price.actual || 0) )
+                                .map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
   const callGamma = callContracts.map(cd => (cd.gamma || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
   const callDelta = callContracts.map(cd => (cd.delta || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
 
   const putInterest = putContracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
+  const itmPuts = putContracts.filter(cd => (cd.strike || 0) > (symbol.price.actual || 0) )
+                                .map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
   const putGamma = putContracts.map(cd => (cd.gamma || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
   const putDelta = putContracts.map(cd => (cd.delta || 0) * (cd.openInterest || 0)).reduce((a,b) => a+b, 0) 
 
@@ -434,6 +438,9 @@ export function ThetaPage(props: {}): React.ReactElement {
           <Typography>Call Open Interest: {callInterest}</Typography>
           </Grid>
           <Grid item xl={3}>
+          <Typography>ITM Call Interest: {itmCalls}</Typography>
+          </Grid>
+          <Grid item xl={3}>
           <Typography>Call Gamma: {callGamma.toFixed(3)}</Typography>
           </Grid>
           <Grid item xl={3}>
@@ -443,6 +450,9 @@ export function ThetaPage(props: {}): React.ReactElement {
         <Grid item xl={12}>
           <Grid item xl={3}>
           <Typography>Put Open Interest: {putInterest}</Typography>
+          </Grid>
+          <Grid item xl={3}>
+          <Typography>ITM Put Interest: {itmPuts}</Typography>
           </Grid>
           <Grid item xl={3}>
           <Typography>Put Gamma: {putGamma.toFixed(3)}</Typography>
@@ -487,7 +497,7 @@ export function ThetaPage(props: {}): React.ReactElement {
             {
             const strikePrice =opt.strike || 0;
             if(opt){
-              const percentReturn = (opt.lastPrice || opt.bid || 0)/strikePrice
+              const percentReturn = returnSort(opt)
               const compoundReturn = Math.pow((1+percentReturn), compoundingPower)
               const delta = opt.delta ?? 0
               const gamma = opt.gamma ?? 0
