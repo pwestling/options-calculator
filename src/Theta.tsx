@@ -504,7 +504,24 @@ export function ThetaPage(props: {}): React.ReactElement {
 
               return <TableRow>
                 <TableCell>${strikePrice}</TableCell>
-                <TableCell>${opt.lastPrice}</TableCell>
+                <TableCell>
+                <Grid container direction="column" alignItems="flex-start" spacing={0}>
+                  <Grid item >
+                    ${opt.lastPrice}
+                  </Grid>
+                  <Grid item>
+                  <Typography variant="caption" style={{color: "green"}}>
+                      {opt.bid}
+                  </Typography>
+                  <Typography variant="caption" style={{color: "green", marginLeft: 3, marginRight: 3}}>
+                       -
+                  </Typography>
+                  <Typography variant="caption" style={{color: "red"}}>
+                      {opt.ask}
+                  </Typography>
+                  </Grid>
+                </Grid>
+                </TableCell>
                 <TableCell>${effSort(opt).toFixed(2)}</TableCell>
                 <TableCell>{delta.toFixed(3)}</TableCell>
                 <TableCell>{gamma.toFixed(3)}</TableCell>

@@ -215,8 +215,13 @@ const darkTheme = createMuiTheme({
     background: {
       paper: "rgba(20,20,20,1)",
       default: "rgba(0,0,0,1)"
-    },
+    }
   },
+  typography: {
+    caption: {
+      fontSize: "0.25rem"
+    }
+  }
 });
 
 function App(): React.ReactElement {
