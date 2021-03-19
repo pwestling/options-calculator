@@ -40,6 +40,7 @@ import base64url from "base64url";
 import { useStyles } from "./Styles";
 import YahooFinance, { Expiration } from "yahoo-finance-client-ts";
 import { OptionChain, OptionMeta, Quote, ContractData, ContractDataByStrike } from "yahoo-finance-client-ts";
+import { debounce } from 'throttle-debounce';
 
 import {
   Symbol,
@@ -178,6 +179,10 @@ type SortHandler = {
   direction: "asc" | "desc"
 }
 
+type FilterHandler = {
+  [key: string]: ContractFilter | null;
+}
+
 function sortBy<T>(keyFn: (e: T) => number, dir: "asc" | "desc"): (e1: T, e2: T) => number {
   let mult = dir === "asc" ? 1 : -1;
   return (e1,e2) => {
@@ -194,6 +199,8 @@ function sortBy<T>(keyFn: (e: T) => number, dir: "asc" | "desc"): (e1: T, e2: T)
 }
 
 type ContractSorter = (data: ContractData) => number
+type ContractFilter = (data: ContractData) => boolean
+type ContractFilterFactory<Value> = (val: Value) => ((data: ContractData) => boolean)
 
 function SortableColHeader(props: {name: string, sorter: SortHandler, sortFn: ContractSorter, setSorter: Updater<SortHandler>}):  React.ReactElement {
   return  <TableCell>
@@ -210,6 +217,39 @@ function SortableColHeader(props: {name: string, sorter: SortHandler, sortFn: Co
             >
             {props.name}
             </TableSortLabel>
+          </TableCell>
+} 
+
+function FilterColHeader(props: {
+  name: string, 
+  kind: "Max" | "Min",
+  filterMaker: ContractFilterFactory<Number>, 
+  currentFilters: FilterHandler, 
+  setFilter: Updater<FilterHandler>}):  React.ReactElement {
+  return  <TableCell>
+           <FormControl>
+              <TextField
+                variant="standard"
+                size="small"
+                label={props.kind}
+                margin="none"
+                style={{
+                  scale: "0.5"
+                }}
+                onChange={debounce(150,false,(e) => {
+                  const returnNum = Number.parseFloat(e?.target?.value)
+                  if(isNaN(returnNum)){
+                    const filters = Object.assign({}, props.currentFilters)
+                    filters[props.name] = null
+                    props.setFilter(filters)
+                  }else{
+                    const filters = Object.assign({}, props.currentFilters)
+                    filters[props.name] = props.filterMaker(returnNum)
+                    props.setFilter(filters)
+                  }
+                })}
+              />
+            </FormControl>
           </TableCell>
 } 
 
@@ -249,6 +289,21 @@ export function ThetaPage(props: {}): React.ReactElement {
     }
   }, [symbol, expiration])
 
+  // const setSymbolPrefetch = async (symbol: Symbol) => {
+  //   setSymbol(symbol)
+  //   const expirations = await yf.optionMeta(symbol.symbol).then(om => om.expirations)
+  //   const chainPromises = expirations.map(exp =>{
+  //     return yf.options(symbol.symbol, exp.expirationTimestamp).then(chain => ({exp: exp, chain: chain}))
+  //   })
+  //   const chains = await Promise.all(chainPromises)
+  //   const newCache: OptionCache = {}
+  //   chains.forEach(expirationAndChain => {
+  //     const cacheKey = symbol.symbol + ":" + expirationAndChain["exp"].expirationTimestamp;
+  //     newCache[cacheKey] = expirationAndChain["chain"]
+  //   })
+  //   setOptionCache(newCache)
+  // }
+
   const targetDataChain: OptionChain | undefined = optionCache[symbol.symbol +":"+expiration?.expirationTimestamp]
   const targetData = (putOrCall === OptionType.Put ? targetDataChain?.put : targetDataChain?.call) || {}
   const putData = targetDataChain?.put || {}
@@ -264,9 +319,10 @@ export function ThetaPage(props: {}): React.ReactElement {
     compoundingPower = 365/dte
   }
 
+  const priceSort = (cd: ContractData) => cd.bid || 0
   const strikeSort = (cd: ContractData) => cd.strike || 0
-  const effSort = (cd: ContractData) => (cd.strike || 0) + ((putOrCall === "put" ? - 1 : 1) * (cd.lastPrice || 0))
-  const returnSort = (cd: ContractData) =>  (cd.lastPrice || 0)/((cd.strike || 0) - (cd.lastPrice || 0))
+  const effSort = (cd: ContractData) => (cd.strike || 0) + ((putOrCall === "put" ? - 1 : 1) * priceSort(cd))
+  const returnSort = (cd: ContractData) =>  priceSort(cd)/((cd.strike || 0) - priceSort(cd))
   const openInterestSort = (cd: ContractData) =>  (cd.openInterest || 0)
   const impliedVolSort = (cd: ContractData) =>  (cd.impliedVolatility || 0)
   const whatIfSort = (cd: ContractData) =>  {
@@ -280,15 +336,14 @@ export function ThetaPage(props: {}): React.ReactElement {
   }
 
   const [sorter, setSorter] = useState<SortHandler>({key: "strike", sortFn: strikeSort, direction: "asc"})
+  const [filterer, setFilterer] = useState<FilterHandler>({})
+
   const contracts: ContractData[] = Object.values(targetData) as ContractData[]
   const putContracts: ContractData[] = Object.values(putData) as ContractData[]
   const callContracts: ContractData[] = Object.values(callData) as ContractData[]
 
   const sortedTargetData: ContractData[] = contracts.sort(sortBy(sorter.sortFn, sorter.direction))
-    .filter(cd => returnSort(cd) >= minReturn)
-    .filter(cd => strikeSort(cd) <= maxStrike)
-    .filter(cd => effSort(cd) <= maxEffPrice)
-    .filter(cd => openInterestSort(cd) >= minOpenInterest)
+    .filter(cd => Object.values(filterer).every(filt => filt == null || filt(cd)))
 
 
   const callInterest = callContracts.map(cd => cd.openInterest || 0).reduce((a,b) => a+b, 0)
@@ -307,124 +362,7 @@ export function ThetaPage(props: {}): React.ReactElement {
   return <>
     <SymbolCard setSymbol={setSymbol} setExpiration={setExpiration} symbol={symbol} setPutOrCall={setPutOrCall} putOrCall={putOrCall}/>
     <div className={classes.pageContainer}>
-    <Card>
-     
-    <CardContent>
-    <Typography color="textSecondary" gutterBottom>
-          Filters
-    </Typography>
-    <Grid container spacing={1}>
-    <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Min Return"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setMinReturn(-1)
-                  }else{
-                    setMinReturn(returnNum/100)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Max Strike"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setMaxStrike(9999999999)
-                  }else{
-                    setMaxStrike(returnNum)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Max Exe. Price"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setMaxEffPrice(9999999999)
-                  }else{
-                    setMaxEffPrice(returnNum)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Min Open Interest"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setMinOpenInterest(0)
-                  }else{
-                    setMinOpenInterest(returnNum)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Hypothetical IV"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setHypotheticalIV(0)
-                  }else{
-                    setHypotheticalIV(returnNum/100)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      <Grid item xs={3} sm={2}>
-          <FormControl>
-              <TextField
-                variant="outlined"
-                size="small"
-                label="Hypothetical Price"
-                margin="none"
-                onChange={(e) => {
-                  const returnNum = Number.parseFloat(e?.target?.value)
-                  if(isNaN(returnNum)){
-                    setHypotheticalUnderlying(0)
-                  }else{
-                    setHypotheticalUnderlying(returnNum)
-                  }
-                }}
-              />
-            </FormControl>
-      </Grid>
-      </Grid>
-      </CardContent>
-      </Card>
+   
       <Box marginBottom={2} marginTop={2}>
     
       <Card>
@@ -432,43 +370,43 @@ export function ThetaPage(props: {}): React.ReactElement {
       <Typography color="textSecondary" gutterBottom>
           Info
       </Typography>
-      <Grid container spacing={2}>
-        <Grid item xl={12}>
-          <Grid item xl={3}>
+      <Grid container spacing={2} direction="column">
+        <Grid container  spacing={4} xs={12} sm={8} direction="row" justify="flex-start" alignItems="flex-start">
+          <Grid item xs={3}>
           <Typography>Call Open Interest: {callInterest}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>ITM Call Interest: {itmCalls}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Call Gamma: {callGamma.toFixed(3)}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Call Delta: {callDelta.toFixed(3)}</Typography>
           </Grid>
         </Grid>
-        <Grid item xl={12}>
-          <Grid item xl={3}>
+        <Grid container  spacing={4} xs={12} sm={8} direction="row" justify="flex-start" alignItems="flex-start">
+          <Grid item xs={3}>
           <Typography>Put Open Interest: {putInterest}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>ITM Put Interest: {itmPuts}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Put Gamma: {putGamma.toFixed(3)}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Put Delta: {putDelta.toFixed(3)}</Typography>
           </Grid>
         </Grid>
-        <Grid item xl={12}>
-          <Grid item xl={3}>
+        <Grid container  spacing={4} xs={12} sm={8} direction="row" justify="flex-start" alignItems="flex-start">
+          <Grid item xs={3}>
           <Typography>Put Call Ratio: {(putInterest/callInterest).toFixed(2)}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Net Gamma: {(callGamma - putGamma).toFixed(3)}</Typography>
           </Grid>
-          <Grid item xl={3}>
+          <Grid item xs={3}>
           <Typography>Net Delta: {(callDelta + putDelta).toFixed(3)}</Typography>
           </Grid>
         </Grid>
@@ -477,10 +415,10 @@ export function ThetaPage(props: {}): React.ReactElement {
       </Card>
       </Box>
       <Table>
-        <TableHead>
+        <TableHead >
           <TableRow>
             <SortableColHeader name={"Strike"} sortFn={strikeSort} sorter={sorter} setSorter={setSorter} />
-            <SortableColHeader name={"Price"} sortFn={(cd: ContractData) => cd.lastPrice || 0} sorter={sorter} setSorter={setSorter} />
+            <SortableColHeader name={"Price"} sortFn={priceSort} sorter={sorter} setSorter={setSorter} />
             <SortableColHeader name={"Execution Share Price"} sortFn={effSort} sorter={sorter} setSorter={setSorter} />
             <SortableColHeader name={"Delta"} sortFn={(cd: ContractData) => cd.delta || 0} sorter={sorter} setSorter={setSorter} />
             <SortableColHeader name={"Gamma"} sortFn={(cd: ContractData) => cd.gamma || 0} sorter={sorter} setSorter={setSorter} />
@@ -490,6 +428,32 @@ export function ThetaPage(props: {}): React.ReactElement {
             <SortableColHeader name={"Open Intrest"} sortFn={openInterestSort} sorter={sorter} setSorter={setSorter} />
             <SortableColHeader name={"DTE"} sortFn={strikeSort} sorter={sorter} setSorter={setSorter} />
             <SortableColHeader name={"Return"} sortFn={returnSort} sorter={sorter} setSorter={setSorter} />
+          </TableRow>
+          <TableRow>
+            <FilterColHeader kind={"Min"} name={"Min Strike"} filterMaker={val => cd => (cd.strike ?? 0) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Price"} filterMaker={val => cd => priceSort(cd) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Exe. Share Price"} filterMaker={val => cd => effSort(cd) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Delta"} filterMaker={val => cd => (cd.delta ?? 0) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Gamma"} filterMaker={val => cd => (cd.gamma ?? 0) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Leverage"} filterMaker={val => cd => (cd.leverage ?? 0) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Implied Vol."} filterMaker={val => cd => impliedVolSort(cd) * 100 >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min What-If"} filterMaker={val => cd => whatIfSort(cd) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Open Interest"} filterMaker={val => cd => openInterestSort(cd) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min DTE"} filterMaker={val => cd => openInterestSort(cd) >= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Min"} name={"Min Return"} filterMaker={val => cd => returnSort(cd) * 100 >= val} currentFilters={filterer} setFilter={setFilterer} />
+          </TableRow>
+          <TableRow>
+            <FilterColHeader kind={"Max"} name={"Max Strike"} filterMaker={val => cd => (cd.strike ?? 0) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Price"} filterMaker={val => cd => priceSort(cd) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Exe. Share Price"} filterMaker={val => cd => effSort(cd) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Delta"} filterMaker={val => cd => (cd.delta ?? 0) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Gamma"} filterMaker={val => cd => (cd.gamma ?? 0) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Leverage"} filterMaker={val => cd => (cd.leverage ?? 0) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Implied Vol."} filterMaker={val => cd => impliedVolSort(cd) * 100 <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max What-If"} filterMaker={val => cd => whatIfSort(cd) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Open Interest"} filterMaker={val => cd => openInterestSort(cd) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max DTE"} filterMaker={val => cd => openInterestSort(cd) <= val} currentFilters={filterer} setFilter={setFilterer} />
+            <FilterColHeader kind={"Max"} name={"Max Return"} filterMaker={val => cd => returnSort(cd) * 100 <= val} currentFilters={filterer} setFilter={setFilterer} />
           </TableRow>
         </TableHead>
           <TableBody>
@@ -507,16 +471,16 @@ export function ThetaPage(props: {}): React.ReactElement {
                 <TableCell>
                 <Grid container direction="column" alignItems="flex-start" spacing={0}>
                   <Grid item >
-                    ${opt.lastPrice}
+                    ${priceSort(opt)}
                   </Grid>
                   <Grid item>
-                  <Typography variant="caption" style={{color: "green"}}>
+                  <Typography variant="caption" style={{color: "green", fontSize: "0.25rem"}}>
                       {opt.bid}
                   </Typography>
-                  <Typography variant="caption" style={{color: "green", marginLeft: 3, marginRight: 3}}>
+                  <Typography variant="caption" style={{color: "green", marginLeft: 3, marginRight: 3, fontSize: "0.25rem"}}>
                        -
                   </Typography>
-                  <Typography variant="caption" style={{color: "red"}}>
+                  <Typography variant="caption" style={{color: "red", fontSize: "0.25rem"}}>
                       {opt.ask}
                   </Typography>
                   </Grid>
