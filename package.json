@@ -28,7 +28,7 @@
     "bootstrap": "^4.6.0",
     "byte-buffer": "^2.0.0",
     "git": "^0.1.5",
-    "immer": "^8.0.3",
+    "immer": "^9.0.6",
     "jquery": "^3.6.0",
     "jsonbox-node": "^1.0.7",
     "moment": "^2.29.1",
