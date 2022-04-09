@@ -31,7 +31,7 @@
     "immer": "^8.0.3",
     "jquery": "^3.6.0",
     "jsonbox-node": "^1.0.7",
-    "moment": "^2.29.1",
+    "moment": "^2.29.2",
     "msgpack-lite": "^0.1.26",
     "notepack": "^0.0.2",
     "pako": "^2.0.3",
